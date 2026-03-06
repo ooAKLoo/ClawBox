@@ -176,6 +176,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     } catch {
       // ok
     }
+    localStorage.setItem("clawbox-onboarding-complete", "true");
     onComplete();
   };
 
@@ -193,7 +194,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       <div className="bg-white rounded-3xl w-[640px] max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-6 pb-0">
-          <div className="text-[14px] font-medium text-neutral-700 mb-1">ClawBox 初始设置</div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[14px] font-medium text-neutral-700">ClawBox 初始设置</div>
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              onClick={handleFinish}
+              className="text-[10px] font-medium text-neutral-400 hover:text-neutral-600 px-2 py-1"
+            >
+              跳过引导
+            </motion.button>
+          </div>
           <div className="text-[11px] text-neutral-400 mb-4">
             {STEP_LABELS[stepIndex]}（{stepIndex + 1}/{STEPS.length}）
           </div>

@@ -27,10 +27,15 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const complete = await window.clawbox?.getOnboardingComplete();
-        setShowOnboarding(!complete);
+        if (window.clawbox) {
+          const complete = await window.clawbox.getOnboardingComplete();
+          setShowOnboarding(!complete);
+        } else {
+          // Not in Electron — use localStorage fallback
+          const complete = localStorage.getItem("clawbox-onboarding-complete") === "true";
+          setShowOnboarding(!complete);
+        }
       } catch {
-        // Not in Electron — skip onboarding
         setShowOnboarding(false);
       }
     })();

@@ -38,8 +38,9 @@ export default function Settings() {
   const handleResetOnboarding = async () => {
     try {
       await window.clawbox?.setOnboardingComplete(false);
-      window.location.reload();
     } catch { /* */ }
+    localStorage.removeItem("clawbox-onboarding-complete");
+    window.location.reload();
   };
 
   return (
