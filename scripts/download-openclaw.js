@@ -7,6 +7,7 @@
  * Environment variables:
  *   OPENCLAW_VERSION  - openclaw npm version (default: "latest")
  *   NODE_VERSION      - Node.js version to bundle (default: "22.17.0")
+ *   TARGET_ARCH       - target architecture override for cross-compile (e.g. "x64" on arm64 runner)
  */
 
 const fs = require("fs");
@@ -25,7 +26,7 @@ const OPENCLAW_DIR = path.join(RUNTIME_DIR, "openclaw");
 
 function getPlatformArch() {
   const platform = process.platform; // darwin | win32 | linux
-  const arch = process.arch; // arm64 | x64
+  const arch = process.env.TARGET_ARCH || process.arch; // allow cross-compile override
   return { platform, arch };
 }
 

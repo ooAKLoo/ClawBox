@@ -10,12 +10,6 @@
 [![GitHub license](https://img.shields.io/github/license/ooAKLoo/ClawBox)](https://github.com/ooAKLoo/ClawBox/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/ooAKLoo/ClawBox)](https://github.com/ooAKLoo/ClawBox/releases)
 
-<br/>
-
-### Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=ooAKLoo/ClawBox&type=Date)](https://star-history.com/#ooAKLoo/ClawBox&Date)
-
 </div>
 
 ---
@@ -93,3 +87,13 @@ ClawBox/
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+### Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ooAKLoo/ClawBox&type=Date)](https://star-history.com/#ooAKLoo/ClawBox&Date)
+
+</div>
