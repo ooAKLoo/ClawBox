@@ -41,6 +41,16 @@ export default function App() {
     })();
   }, []);
 
+  // Listen for onboarding reset from Settings page
+  useEffect(() => {
+    const handler = () => {
+      setActivePage("dashboard");
+      setShowOnboarding(true);
+    };
+    window.addEventListener("clawbox-reset-onboarding", handler);
+    return () => window.removeEventListener("clawbox-reset-onboarding", handler);
+  }, []);
+
   // Loading state
   if (showOnboarding === null) {
     return (

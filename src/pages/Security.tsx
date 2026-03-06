@@ -81,7 +81,7 @@ export default function Security() {
   const score = Math.round((safeCount / totalChecks) * 100);
   const riskLevel = score >= 85 ? "low" : score >= 60 ? "medium" : "high";
   const riskLabels = { low: "低风险", medium: "中风险", high: "高风险" };
-  const riskColors = { low: "bg-emerald-500", medium: "bg-amber-500", high: "bg-red-500" };
+  const riskColors = { low: "bg-[#34C759]", medium: "bg-[#FF9F0A]", high: "bg-[#FF3B30]" };
 
   // Profile tabs
   const profiles = [

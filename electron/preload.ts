@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld("clawbox", {
   checkNode: () => ipcRenderer.invoke("check-node"),
   checkOpenClaw: () => ipcRenderer.invoke("check-openclaw"),
   installOpenClaw: () => ipcRenderer.invoke("install-openclaw"),
+  installEnvironment: () => ipcRenderer.invoke("install-environment"),
+  onInstallProgress: (callback: (progress: { step: string; status: string; detail: string }) => void) => {
+    const handler = (_event: unknown, progress: { step: string; status: string; detail: string }) => callback(progress);
+    ipcRenderer.on("install-progress", handler);
+    return () => { ipcRenderer.removeListener("install-progress", handler); };
+  },
   getPlatform: () => ipcRenderer.invoke("get-platform"),
   getVersion: () => ipcRenderer.invoke("get-version"),
   checkUpdate: () => ipcRenderer.invoke("check-update"),

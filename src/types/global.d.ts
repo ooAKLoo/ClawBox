@@ -59,10 +59,21 @@ export interface LogEntry {
   msg: string;
 }
 
+export type InstallStepStatus = "pending" | "running" | "done" | "error" | "skipped";
+
+export interface InstallProgress {
+  step: string;
+  status: InstallStepStatus;
+  detail: string;
+  log?: string;
+}
+
 interface ClawBoxAPI {
   checkNode: () => Promise<{ installed: boolean; version: string | null }>;
   checkOpenClaw: () => Promise<{ installed: boolean; version: string | null }>;
   installOpenClaw: () => Promise<{ success: boolean; output: string }>;
+  installEnvironment: () => Promise<{ success: boolean; failedStep?: string; errorDetail?: string }>;
+  onInstallProgress: (callback: (progress: InstallProgress) => void) => () => void;
   startDaemon: () => Promise<{ success: boolean; message: string }>;
   stopDaemon: () => Promise<{ success: boolean }>;
   restartDaemon: () => Promise<{ success: boolean }>;

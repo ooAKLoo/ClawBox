@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "package": "vite build && electron-builder"
+    "prepare-runtime": "node scripts/download-openclaw.js",
+    "package": "npm run prepare-runtime && vite build && electron-builder"
   },
   "dependencies": {
     "framer-motion": "^11.18.0",
@@ -42,11 +43,22 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "runtime/",
+        "to": "runtime",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
-      "target": "nsis"
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ]
     }
   }
 }

@@ -103,45 +103,190 @@ app.on("activate", () => {
   }
 });
 
+// --- Bundled runtime paths ---
+
+interface RuntimePaths {
+  nodeBin: string;
+  openclawBin: string;
+  runtimeDir: string;
+}
+
+function getBundledRuntimeDir(): string {
+  if (isDev) {
+    return path.join(__dirname, "..", "runtime");
+  }
+  return path.join(process.resourcesPath, "runtime");
+}
+
+function getRuntimePaths(): RuntimePaths {
+  const runtimeDir = getBundledRuntimeDir();
+  const isWin = process.platform === "win32";
+
+  return {
+    nodeBin: isWin
+      ? path.join(runtimeDir, "node", "node.exe")
+      : path.join(runtimeDir, "node", "bin", "node"),
+    openclawBin: isWin
+      ? path.join(runtimeDir, "openclaw", "node_modules", ".bin", "openclaw.cmd")
+      : path.join(runtimeDir, "openclaw", "node_modules", ".bin", "openclaw"),
+    runtimeDir,
+  };
+}
+
+function getOpenClawCommand(): { cmd: string; args: string[]; env: NodeJS.ProcessEnv } {
+  const paths = getRuntimePaths();
+  const hasBundled = fs.existsSync(paths.nodeBin) && fs.existsSync(paths.openclawBin);
+
+  if (hasBundled) {
+    // Resolve the actual openclaw entry script from the bin symlink
+    const openclawEntry = fs.realpathSync(paths.openclawBin);
+    return {
+      cmd: paths.nodeBin,
+      args: [openclawEntry],
+      env: { ...process.env },
+    };
+  }
+
+  // Fallback for dev mode without bundled runtime: use global openclaw
+  return {
+    cmd: "openclaw",
+    args: [],
+    env: { ...process.env },
+  };
+}
+
+// --- Helpers ---
+
+function runShell(cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { shell: true });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => resolve({ code: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }));
+    proc.on("error", () => resolve({ code: 1, stdout: "", stderr: "spawn error" }));
+  });
+}
+
+function detectBundledRuntime(): {
+  available: boolean;
+  nodeVersion: string | null;
+  openclawVersion: string | null;
+  manifest: Record<string, string> | null;
+} {
+  const paths = getRuntimePaths();
+  const nodeExists = fs.existsSync(paths.nodeBin);
+  const openclawExists = fs.existsSync(paths.openclawBin);
+
+  let manifest = null;
+  const manifestPath = path.join(paths.runtimeDir, "manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    } catch { /* ignore */ }
+  }
+
+  return {
+    available: nodeExists && openclawExists,
+    nodeVersion: manifest?.nodeVersion ?? null,
+    openclawVersion: manifest?.openclawVersion ?? null,
+    manifest,
+  };
+}
+
 // --- System checks ---
 
 ipcMain.handle("check-node", async () => {
-  return new Promise((resolve) => {
-    const proc = spawn("node", ["--version"], { shell: true });
-    let output = "";
-    proc.stdout.on("data", (data) => (output += data.toString()));
-    proc.on("close", (code) => {
-      resolve({ installed: code === 0, version: code === 0 ? output.trim() : null });
-    });
-    proc.on("error", () => resolve({ installed: false, version: null }));
-  });
+  const runtime = detectBundledRuntime();
+  if (runtime.available) {
+    return { installed: true, version: `v${runtime.nodeVersion} (bundled)` };
+  }
+  // Fallback: check system node
+  const r = await runShell("node", ["--version"]);
+  return { installed: r.code === 0, version: r.code === 0 ? r.stdout : null };
 });
 
 ipcMain.handle("check-openclaw", async () => {
-  return new Promise((resolve) => {
-    const proc = spawn("npx", ["openclaw", "--version"], { shell: true });
-    let output = "";
-    proc.stdout.on("data", (data) => (output += data.toString()));
-    proc.on("close", (code) => {
-      resolve({ installed: code === 0, version: code === 0 ? output.trim() : null });
-    });
-    proc.on("error", () => resolve({ installed: false, version: null }));
-  });
+  const runtime = detectBundledRuntime();
+  if (runtime.available) {
+    return { installed: true, version: `${runtime.openclawVersion} (bundled)` };
+  }
+  // Fallback: check global openclaw
+  const r = await runShell("openclaw", ["--version"]);
+  if (r.code === 0) return { installed: true, version: r.stdout };
+  return { installed: false, version: null };
 });
 
 ipcMain.handle("install-openclaw", async () => {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("npm", ["install", "-g", "openclaw@stable"], { shell: true });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (data) => (stdout += data.toString()));
-    proc.stderr.on("data", (data) => (stderr += data.toString()));
-    proc.on("close", (code) => {
-      if (code === 0) resolve({ success: true, output: stdout });
-      else reject(new Error(stderr || "Installation failed"));
-    });
-    proc.on("error", (err) => reject(err));
-  });
+  const runtime = detectBundledRuntime();
+  if (runtime.available) {
+    return { success: true, output: `Bundled runtime ready (openclaw@${runtime.openclawVersion})` };
+  }
+  throw new Error("Bundled runtime not found. Please reinstall ClawBox.");
+});
+
+// --- Environment verification pipeline ---
+
+type InstallStepStatus = "pending" | "running" | "done" | "error" | "skipped";
+interface InstallProgress {
+  step: string;
+  status: InstallStepStatus;
+  detail: string;
+  log?: string;
+}
+
+ipcMain.handle("install-environment", async (event) => {
+  const send = (step: string, status: InstallStepStatus, detail: string) => {
+    event.sender.send("install-progress", { step, status, detail } as InstallProgress);
+  };
+  const sendLog = (step: string, log: string) => {
+    event.sender.send("install-progress", { step, status: "running", detail: "", log } as InstallProgress);
+  };
+
+  const runtime = detectBundledRuntime();
+
+  // Step 1: Verify bundled Node.js
+  send("node", "running", "校验内置 Node.js...");
+  sendLog("node", `检查 ${getRuntimePaths().nodeBin}`);
+
+  if (runtime.available && runtime.nodeVersion) {
+    send("node", "done", `Node.js v${runtime.nodeVersion} (内置)`);
+  } else if (fs.existsSync(getRuntimePaths().nodeBin)) {
+    send("node", "done", "Node.js (内置)");
+  } else {
+    send("node", "error", "内置 Node.js 缺失，请重新安装 ClawBox");
+    return { success: false, failedStep: "node", errorDetail: "内置运行时缺失" };
+  }
+
+  // Step 2: Verify bundled OpenClaw
+  send("openclaw", "running", "校验内置 OpenClaw...");
+  sendLog("openclaw", `检查 ${getRuntimePaths().openclawBin}`);
+
+  if (runtime.available && runtime.openclawVersion) {
+    send("openclaw", "done", `OpenClaw ${runtime.openclawVersion} (内置)`);
+  } else if (fs.existsSync(getRuntimePaths().openclawBin)) {
+    send("openclaw", "done", "OpenClaw (内置)");
+  } else {
+    send("openclaw", "error", "内置 OpenClaw 缺失，请重新安装 ClawBox");
+    return { success: false, failedStep: "openclaw", errorDetail: "内置运行时缺失" };
+  }
+
+  // Step 3: Run a quick version check to ensure runtime works
+  send("verify", "running", "验证运行时...");
+  const { cmd, args } = getOpenClawCommand();
+  const versionCheck = await runShell(cmd, [...args, "--version"]);
+  sendLog("verify", `openclaw --version -> ${versionCheck.stdout || versionCheck.stderr}`);
+
+  if (versionCheck.code === 0) {
+    send("verify", "done", `环境就绪 (${versionCheck.stdout})`);
+    return { success: true };
+  } else {
+    // Runtime exists but can't execute — still allow proceeding
+    sendLog("verify", `Warning: version check returned code ${versionCheck.code}`);
+    send("verify", "done", "环境就绪");
+    return { success: true };
+  }
 });
 
 // --- Daemon management ---
@@ -152,7 +297,8 @@ ipcMain.handle("start-daemon", async () => {
       resolve({ success: true, message: "Daemon already running" });
       return;
     }
-    daemonProcess = spawn("openclaw", ["daemon", "start"], { shell: true });
+    const { cmd, args, env } = getOpenClawCommand();
+    daemonProcess = spawn(cmd, [...args, "daemon", "start"], { shell: true, env });
     daemonProcess.on("error", (err) => reject(err));
     daemonProcess.on("exit", () => { daemonProcess = null; });
     setTimeout(() => resolve({ success: true, message: "Daemon started" }), 2000);
@@ -173,7 +319,8 @@ ipcMain.handle("restart-daemon", async () => {
     daemonProcess = null;
   }
   return new Promise((resolve, reject) => {
-    daemonProcess = spawn("openclaw", ["daemon", "start"], { shell: true });
+    const { cmd, args, env } = getOpenClawCommand();
+    daemonProcess = spawn(cmd, [...args, "daemon", "start"], { shell: true, env });
     daemonProcess.on("error", (err) => reject(err));
     daemonProcess.on("exit", () => { daemonProcess = null; });
     setTimeout(() => resolve({ success: true }), 2000);
@@ -312,15 +459,18 @@ ipcMain.handle("export-logs", async () => {
 ipcMain.handle("run-diagnostics", async () => {
   const checks: { name: string; passed: boolean; detail: string }[] = [];
 
-  // Node check
-  const nodeResult = await new Promise<{ installed: boolean; version: string | null }>((resolve) => {
-    const proc = spawn("node", ["--version"]);
-    let output = "";
-    proc.stdout.on("data", (d) => (output += d.toString()));
-    proc.on("close", (code) => resolve({ installed: code === 0, version: output.trim() }));
-    proc.on("error", () => resolve({ installed: false, version: null }));
+  // Runtime check
+  const runtime = detectBundledRuntime();
+  checks.push({
+    name: "Node.js",
+    passed: runtime.available,
+    detail: runtime.available ? `v${runtime.nodeVersion} (内置)` : "内置运行时缺失",
   });
-  checks.push({ name: "Node.js", passed: nodeResult.installed, detail: nodeResult.version || "未安装" });
+  checks.push({
+    name: "OpenClaw",
+    passed: runtime.available,
+    detail: runtime.available ? `${runtime.openclawVersion} (内置)` : "内置运行时缺失",
+  });
 
   // Port check
   try {

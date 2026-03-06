@@ -40,7 +40,7 @@ export default function Settings() {
       await window.clawbox?.setOnboardingComplete(false);
     } catch { /* */ }
     localStorage.removeItem("clawbox-onboarding-complete");
-    window.location.reload();
+    window.dispatchEvent(new CustomEvent("clawbox-reset-onboarding"));
   };
 
   return (

@@ -10,15 +10,25 @@ import iconHunyuan from "../assets/icons/hunyuan.svg";
 import iconMinimax from "../assets/icons/minimax.svg";
 import iconZhipu from "../assets/icons/zhipu.svg";
 import iconKimi from "../assets/icons/kimi.svg";
+import iconStepfun from "../assets/icons/stepfun.svg";
+
+/** 价格单位：元 / 百万 tokens */
+const PRICE_UPDATED = "2026-03";
+
+type ModelPricing = { input: number; output: number; note?: string };
 
 const PROVIDERS = [
   {
     id: "deepseek",
     name: "DeepSeek",
     icon: iconDeepseek,
-    desc: "国内认知度高，性价比好，适合尝鲜用户",
+    desc: "国内认知度高，性价比好，当前都对应 DeepSeek-V3.2",
     baseUrl: "https://api.deepseek.com/v1",
     models: ["deepseek-chat", "deepseek-reasoner"],
+    pricing: {
+      "deepseek-chat": { input: 2, output: 3, note: "缓存命中输入 ¥0.2/M" },
+      "deepseek-reasoner": { input: 2, output: 3, note: "缓存命中输入 ¥0.2/M" },
+    } as Record<string, ModelPricing>,
     tag: "省心推荐",
     portalUrl: "https://platform.deepseek.com/api_keys",
     portalLabel: "打开 DeepSeek 开放平台",
@@ -27,45 +37,31 @@ const PROVIDERS = [
     id: "qwen",
     name: "阿里云百炼 Qwen",
     icon: iconQwen,
-    desc: "稳定性好，企业级文档完整，有 OpenClaw 专门适配",
+    desc: "稳定性好，企业级文档完整，中国内地/全球部署同价",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    models: ["qwen-plus", "qwen-turbo", "qwen-max"],
+    models: ["qwen3-next-80b-a3b-instruct", "qwen3-next-80b-a3b-thinking"],
+    pricing: {
+      "qwen3-next-80b-a3b-instruct": { input: 1, output: 4 },
+      "qwen3-next-80b-a3b-thinking": { input: 1, output: 10, note: "思考模式输出更贵" },
+    } as Record<string, ModelPricing>,
     tag: "稳定推荐",
     portalUrl: "https://bailian.console.aliyun.com/",
     portalLabel: "打开阿里云百炼控制台",
   },
   {
-    id: "volcengine",
-    name: "火山方舟",
-    icon: iconVolcengine,
-    desc: "字节系生态，飞书周边场景有协同感",
-    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-    models: ["doubao-pro-32k", "doubao-lite-32k"],
-    tag: "备选",
-    portalUrl: "https://console.volcengine.com/ark",
-    portalLabel: "打开火山方舟控制台",
-  },
-  {
-    id: "siliconflow",
-    name: "硅基流动",
-    icon: iconSiliconflow,
-    desc: "模型选择多，开发者生态成熟",
-    baseUrl: "https://api.siliconflow.cn/v1",
-    models: ["deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-72B-Instruct"],
+    id: "stepfun",
+    name: "阶跃星辰",
+    icon: iconStepfun,
+    desc: "多模态能力强，Step 系列性价比突出",
+    baseUrl: "https://api.stepfun.com/v1",
+    models: ["step-3.5-flash", "step-3"],
+    pricing: {
+      "step-3.5-flash": { input: 0.7, output: 2.1, note: "缓存命中输入 ¥0.14/M" },
+      "step-3": { input: 4, output: 16 },
+    } as Record<string, ModelPricing>,
     tag: "",
-    portalUrl: "https://cloud.siliconflow.cn/account/ak",
-    portalLabel: "打开硅基流动控制台",
-  },
-  {
-    id: "hunyuan",
-    name: "腾讯混元",
-    icon: iconHunyuan,
-    desc: "腾讯体系内用户熟悉",
-    baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
-    models: ["hunyuan-pro", "hunyuan-standard"],
-    tag: "",
-    portalUrl: "https://hunyuan.tencent.com/bot/chat",
-    portalLabel: "打开腾讯混元平台",
+    portalUrl: "https://platform.stepfun.com/",
+    portalLabel: "打开阶跃星辰开放平台",
   },
   {
     id: "minimax",
@@ -73,32 +69,90 @@ const PROVIDERS = [
     icon: iconMinimax,
     desc: "擅长长文本和语音生成，MoE 架构性价比高",
     baseUrl: "https://api.minimax.chat/v1",
-    models: ["MiniMax-Text-01", "abab6.5s-chat"],
+    models: ["MiniMax-M2.5", "MiniMax-M2.5-highspeed"],
+    pricing: {
+      "MiniMax-M2.5": { input: 2.1, output: 8.4 },
+      "MiniMax-M2.5-highspeed": { input: 4.2, output: 16.8 },
+    } as Record<string, ModelPricing>,
     tag: "",
     portalUrl: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
     portalLabel: "打开 MiniMax 开放平台",
   },
   {
-    id: "zhipu",
-    name: "智谱 GLM",
-    icon: iconZhipu,
-    desc: "清华系团队，GLM 系列模型能力全面",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    models: ["glm-4-plus", "glm-4-flash", "glm-4"],
+    id: "hunyuan",
+    name: "腾讯混元",
+    icon: iconHunyuan,
+    desc: "腾讯体系内用户熟悉，HY 2.0 系列",
+    baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
+    models: ["hunyuan-2.0-instruct", "hunyuan-2.0-think"],
+    pricing: {
+      "hunyuan-2.0-instruct": { input: 3.18, output: 7.95, note: "32k 内；32-128k 涨至 4.5/11.9" },
+      "hunyuan-2.0-think": { input: 3.975, output: 15.9, note: "32k 内；32-128k 涨至 5.3/21.2" },
+    } as Record<string, ModelPricing>,
     tag: "",
-    portalUrl: "https://open.bigmodel.cn/usercenter/apikeys",
-    portalLabel: "打开智谱开放平台",
+    portalUrl: "https://hunyuan.tencent.com/bot/chat",
+    portalLabel: "打开腾讯混元平台",
   },
   {
     id: "kimi",
     name: "Kimi (月之暗面)",
     icon: iconKimi,
-    desc: "长上下文能力突出，擅长文档理解与总结",
+    desc: "长上下文能力突出，262k 上下文窗口",
     baseUrl: "https://api.moonshot.cn/v1",
-    models: ["moonshot-v1-auto", "moonshot-v1-32k", "moonshot-v1-128k"],
+    models: ["kimi-k2-0905-preview"],
+    pricing: {
+      "kimi-k2-0905-preview": { input: 4, output: 16, note: "缓存命中输入 ¥1/M" },
+    } as Record<string, ModelPricing>,
     tag: "",
     portalUrl: "https://platform.moonshot.cn/console/api-keys",
     portalLabel: "打开 Moonshot 开放平台",
+  },
+  {
+    id: "volcengine",
+    name: "火山方舟",
+    icon: iconVolcengine,
+    desc: "字节系生态，豆包 Seed 系列模型",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    models: ["Doubao-Seed-2.0-pro-260215", "Doubao-Seed-2.0-lite-260215", "Doubao-Seed-1.6-vision-250815"],
+    pricing: {
+      "Doubao-Seed-2.0-pro-260215": { input: 3.2, output: 16, note: "≤32k；缓存命中 ¥0.64/M" },
+      "Doubao-Seed-2.0-lite-260215": { input: 0.6, output: 3.6, note: "≤32k；缓存命中 ¥0.12/M" },
+      "Doubao-Seed-1.6-vision-250815": { input: 0.8, output: 8, note: "≤32k；多模态；缓存命中 ¥0.16/M" },
+    } as Record<string, ModelPricing>,
+    tag: "",
+    portalUrl: "https://console.volcengine.com/ark",
+    portalLabel: "打开火山方舟控制台",
+  },
+  {
+    id: "zhipu",
+    name: "智谱 GLM",
+    icon: iconZhipu,
+    desc: "清华系团队，GLM-5 旗舰即将推出",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    models: ["glm-4.6v"],
+    pricing: {
+      "glm-4.6v": { input: 1, output: 3, note: "GLM-5 / GLM-5-Code 标记 Coming soon" },
+    } as Record<string, ModelPricing>,
+    tag: "",
+    portalUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+    portalLabel: "打开智谱开放平台",
+  },
+  {
+    id: "siliconflow",
+    name: "硅基流动",
+    icon: iconSiliconflow,
+    desc: "聚合平台，可接入 DeepSeek、GLM、Qwen 等多家模型",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    models: ["Step-3.5-Flash", "deepseek-ai/DeepSeek-V3.2", "zhipu-ai/GLM-4.6V", "MiniMax/MiniMax-M2.5"],
+    pricing: {
+      "Step-3.5-Flash": { input: 0.7, output: 2.1 },
+      "deepseek-ai/DeepSeek-V3.2": { input: 2, output: 3 },
+      "zhipu-ai/GLM-4.6V": { input: 1, output: 3 },
+      "MiniMax/MiniMax-M2.5": { input: 2.1, output: 8.4 },
+    } as Record<string, ModelPricing>,
+    tag: "聚合",
+    portalUrl: "https://cloud.siliconflow.cn/account/ak",
+    portalLabel: "打开硅基流动控制台",
   },
   {
     id: "custom",
@@ -107,6 +161,7 @@ const PROVIDERS = [
     desc: "任意兼容 OpenAI API 的供应商",
     baseUrl: "",
     models: [],
+    pricing: {} as Record<string, ModelPricing>,
     tag: "",
     portalUrl: null,
     portalLabel: null,
@@ -124,6 +179,8 @@ const openLink = async (url: string) => {
     window.open(url, "_blank");
   }
 };
+
+const formatPrice = (price: number) => `¥${price}`;
 
 export default function Model() {
   const [activeId, setActiveId] = useState("deepseek");
@@ -200,11 +257,12 @@ export default function Model() {
   };
 
   const isValid = apiKey.trim() && (active.id !== "custom" || (customBaseUrl.trim() && customModel.trim()));
+  const currentPricing = active.pricing[selectedModel];
 
   return (
     <div className="flex gap-4 h-full">
       {/* Left — provider list */}
-      <div className="w-52 flex-shrink-0 space-y-1">
+      <div className="w-52 flex-shrink-0 space-y-1 overflow-y-auto">
         <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
           模型供应商
         </div>
@@ -246,7 +304,7 @@ export default function Model() {
       </div>
 
       {/* Right — config form */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
           配置
         </div>
@@ -333,6 +391,68 @@ export default function Model() {
                   </motion.button>
                 ))}
               </div>
+
+              {/* Pricing for selected model */}
+              {currentPricing && (
+                <div className="mt-2.5 space-y-1">
+                  <div className="flex items-center gap-4 text-[10px] text-neutral-400">
+                    <span>
+                      输入 <span className="font-medium text-neutral-500">{formatPrice(currentPricing.input)}</span>
+                    </span>
+                    <span>
+                      输出 <span className="font-medium text-neutral-500">{formatPrice(currentPricing.output)}</span>
+                    </span>
+                    <span className="text-[9px] text-neutral-300">元/百万 tokens</span>
+                  </div>
+                  {currentPricing.note && (
+                    <p className="text-[9px] text-neutral-300">{currentPricing.note}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pricing table */}
+          {active.id !== "custom" && Object.keys(active.pricing).length > 0 && (
+            <div className="bg-white rounded-xl p-3">
+              <label className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-2 block">
+                价格一览 <span className="text-neutral-300 normal-case">({PRICE_UPDATED} 更新)</span>
+              </label>
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-neutral-400 text-left">
+                    <th className="font-medium pb-1.5">模型</th>
+                    <th className="font-medium pb-1.5 text-right">输入 (元/M)</th>
+                    <th className="font-medium pb-1.5 text-right">输出 (元/M)</th>
+                    <th className="font-medium pb-1.5 pl-3">备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {active.models.map((m) => {
+                    const p = active.pricing[m];
+                    if (!p) return null;
+                    return (
+                      <tr
+                        key={m}
+                        className={selectedModel === m ? "text-neutral-700" : "text-neutral-400"}
+                      >
+                        <td className="py-1 font-medium font-mono">{m}</td>
+                        <td className="py-1 text-right">{formatPrice(p.input)}</td>
+                        <td className="py-1 text-right">{formatPrice(p.output)}</td>
+                        <td className="py-1 pl-3 text-[9px] text-neutral-300">{p.note || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {active.portalUrl && (
+                <button
+                  onClick={() => openLink(active.portalUrl!)}
+                  className="text-[9px] text-neutral-300 hover:text-neutral-400 mt-1.5 transition-colors duration-200"
+                >
+                  以官方最新定价为准 →
+                </button>
+              )}
             </div>
           )}
 

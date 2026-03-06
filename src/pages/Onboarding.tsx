@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { ModelProvider } from "../types/global";
+import type { ModelProvider, InstallStepStatus, InstallProgress } from "../types/global";
 
 const STEPS = [
   "welcome",
-  "envCheck",
+  "install",
   "selectProvider",
   "apiKey",
   "feishu",
@@ -16,7 +16,7 @@ type Step = (typeof STEPS)[number];
 
 const STEP_LABELS = [
   "欢迎",
-  "环境检查",
+  "环境安装",
   "选择模型",
   "API Key",
   "飞书接入",
@@ -36,15 +36,36 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
+// --- Install pipeline types ---
+
+interface InstallStepInfo {
+  id: string;
+  label: string;
+  status: InstallStepStatus;
+  detail: string;
+}
+
+const INSTALL_STEPS_INIT: InstallStepInfo[] = [
+  { id: "node", label: "Node.js (内置)", status: "pending", detail: "等待校验" },
+  { id: "openclaw", label: "OpenClaw (内置)", status: "pending", detail: "等待校验" },
+  { id: "verify", label: "运行时验证", status: "pending", detail: "等待校验" },
+];
+
 export default function Onboarding({ onComplete }: OnboardingProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const step = STEPS[stepIndex];
 
-  // State
-  const [envStatus, setEnvStatus] = useState<{ node: boolean; openclaw: boolean; checking: boolean }>({
-    node: false, openclaw: false, checking: false,
-  });
+  // Install pipeline state
+  const [installSteps, setInstallSteps] = useState<InstallStepInfo[]>(INSTALL_STEPS_INIT);
+  const [installing, setInstalling] = useState(false);
+  const [installDone, setInstallDone] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installFailedStep, setInstallFailedStep] = useState<string | null>(null);
+  const [installLogs, setInstallLogs] = useState<string[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Other state
   const [selectedProvider, setSelectedProvider] = useState(providers[0]);
   const [apiKey, setApiKey] = useState("");
   const [modelTesting, setModelTesting] = useState(false);
@@ -70,20 +91,74 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   };
 
-  const checkEnv = async () => {
-    setEnvStatus({ node: false, openclaw: false, checking: true });
+  // --- Install pipeline ---
+
+  const handleInstallProgress = useCallback((progress: InstallProgress) => {
+    // Append log line if present
+    if (progress.log) {
+      setInstallLogs((prev) => {
+        const next = [...prev, progress.log!];
+        // Keep last 200 lines to avoid memory issues
+        return next.length > 200 ? next.slice(-200) : next;
+      });
+    }
+    // Update step status (skip pure log-only updates)
+    if (progress.detail) {
+      setInstallSteps((prev) =>
+        prev.map((s) =>
+          s.id === progress.step
+            ? { ...s, status: progress.status as InstallStepStatus, detail: progress.detail }
+            : s
+        )
+      );
+    }
+  }, []);
+
+  const startInstall = async () => {
+    setInstalling(true);
+    setInstallError(null);
+    setInstallFailedStep(null);
+    setInstallDone(false);
+    setInstallSteps(INSTALL_STEPS_INIT);
+    setInstallLogs([]);
+
+    const api = window.clawbox;
+    if (!api) {
+      setInstallError("未在桌面端运行");
+      setInstalling(false);
+      return;
+    }
+
+    const cleanup = api.onInstallProgress(handleInstallProgress);
+
     try {
-      const api = window.clawbox;
-      if (!api) {
-        setEnvStatus({ node: false, openclaw: false, checking: false });
-        return;
+      const result = await api.installEnvironment();
+      if (result.success) {
+        setInstallDone(true);
+      } else {
+        setInstallFailedStep(result.failedStep ?? null);
+        setInstallError(result.errorDetail || `安装在「${result.failedStep ?? "unknown"}」步骤失败`);
       }
-      const [node, claw] = await Promise.all([api.checkNode(), api.checkOpenClaw()]);
-      setEnvStatus({ node: node.installed, openclaw: claw.installed, checking: false });
-    } catch {
-      setEnvStatus({ node: false, openclaw: false, checking: false });
+    } catch (err) {
+      setInstallError(String(err));
+    } finally {
+      cleanup();
+      setInstalling(false);
     }
   };
+
+  // Auto-scroll log to bottom
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [installLogs]);
+
+  // Auto-advance after install success
+  useEffect(() => {
+    if (installDone && step === "install") {
+      const timer = setTimeout(goNext, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [installDone, step]);
 
   const testModel = async () => {
     setModelTesting(true);
@@ -182,7 +257,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
   const canProceed = (): boolean => {
     switch (step) {
-      case "envCheck": return envStatus.node;
+      case "install": return installDone;
       case "apiKey": return apiKey.trim().length > 0;
       case "feishu": return feishuConfig.appId.trim().length > 0 && feishuConfig.appSecret.trim().length > 0;
       default: return true;
@@ -243,24 +318,83 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
               )}
 
-              {step === "envCheck" && (
+              {step === "install" && (
                 <div className="space-y-3">
-                  <div className="bg-neutral-100 rounded-2xl p-4 space-y-2">
-                    <CheckItem label="Node.js 22+" checked={envStatus.node} />
-                    <CheckItem label="OpenClaw" checked={envStatus.openclaw} />
+                  <div className="bg-neutral-100 rounded-2xl p-4">
+                    <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
+                      环境安装
+                    </div>
+                    <div className="space-y-2">
+                      {installSteps.map((s) => (
+                        <InstallStepRow key={s.id} step={s} />
+                      ))}
+                    </div>
                   </div>
-                  <motion.button
-                    whileTap={{ scale: 0.97 }}
-                    onClick={checkEnv}
-                    disabled={envStatus.checking}
-                    className="bg-neutral-800 text-white text-[10px] font-medium px-4 py-2 rounded-lg"
-                  >
-                    {envStatus.checking ? "检测中..." : "开始检测"}
-                  </motion.button>
-                  {!envStatus.node && !envStatus.checking && (
-                    <p className="text-[10px] text-neutral-400">
-                      需要 Node.js 22+，请先安装后重新检测。
-                    </p>
+
+                  {/* Terminal log area */}
+                  {installLogs.length > 0 && (
+                    <div className="bg-neutral-800 rounded-xl p-3 max-h-[140px] overflow-y-auto font-mono">
+                      {installLogs.map((line, i) => (
+                        <div key={i} className="text-[9px] leading-4 text-neutral-400">
+                          <span className="text-neutral-600 select-none">$ </span>
+                          {line}
+                        </div>
+                      ))}
+                      <div ref={logEndRef} />
+                    </div>
+                  )}
+
+                  {/* Action area */}
+                  {!installing && !installDone && !installError && (
+                    <div className="space-y-2">
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={startInstall}
+                        className="bg-neutral-800 text-white text-[10px] font-medium px-5 py-2.5 rounded-lg w-full"
+                      >
+                        校验运行环境
+                      </motion.button>
+                      <p className="text-[10px] text-neutral-400 text-center">
+                        Node.js 与 OpenClaw 已内置于安装包，仅需校验完整性
+                      </p>
+                    </div>
+                  )}
+
+                  {installing && (
+                    <div className="flex items-center justify-center gap-2 py-2">
+                      <Spinner />
+                      <span className="text-[10px] text-neutral-400">
+                        {installSteps.find((s) => s.status === "running")?.detail || "正在处理..."}
+                      </span>
+                    </div>
+                  )}
+
+                  {installDone && (
+                    <div className="flex items-center justify-center gap-2 py-2">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                        <span className="text-white text-[10px]">✓</span>
+                      </div>
+                      <span className="text-[11px] font-medium text-emerald-600">环境就绪，即将进入下一步</span>
+                    </div>
+                  )}
+
+                  {installError && (
+                    <div className="bg-[#FFF1F2] rounded-2xl p-4">
+                      <div className="text-[10px] text-[#E11D48] font-medium mb-2">运行时校验失败</div>
+                      <p className="text-[10px] text-neutral-500 mb-3">{installError}</p>
+                      <div className="flex gap-2">
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={startInstall}
+                          className="bg-neutral-800 text-white text-[10px] font-medium px-4 py-2 rounded-lg"
+                        >
+                          重试
+                        </motion.button>
+                      </div>
+                      <p className="text-[10px] text-neutral-400 mt-2">
+                        内置运行时文件缺失，请重新下载安装 ClawBox
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -510,15 +644,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             )}
           </div>
           <div className="flex gap-2">
-            {step === "envCheck" && !envStatus.node && (
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={goNext}
-                className="text-[10px] font-medium text-neutral-400 px-3 py-1.5"
-              >
-                跳过
-              </motion.button>
-            )}
             {step === "testMessage" ? (
               <motion.button
                 whileTap={{ scale: 0.97 }}
@@ -548,14 +673,62 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   );
 }
 
-function CheckItem({ label, checked }: { label: string; checked: boolean }) {
+// --- Sub-components ---
+
+function InstallStepRow({ step }: { step: InstallStepInfo }) {
+  const statusIcon = () => {
+    switch (step.status) {
+      case "done":
+        return (
+          <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-[8px]">✓</span>
+          </div>
+        );
+      case "running":
+        return <Spinner />;
+      case "error":
+        return (
+          <div className="w-4 h-4 rounded-full bg-red-400 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-[8px]">✗</span>
+          </div>
+        );
+      default:
+        return <div className="w-4 h-4 rounded-full bg-neutral-200 flex-shrink-0" />;
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl px-3 py-2 flex items-center gap-2">
-      <div className={`w-1.5 h-1.5 rounded-full ${checked ? "bg-emerald-500" : "bg-neutral-300"}`} />
-      <span className={`text-[11px] font-medium ${checked ? "text-neutral-700" : "text-neutral-400"}`}>
-        {label}
-      </span>
-      {checked && <span className="text-[9px] text-emerald-600 ml-auto">已就绪</span>}
+    <motion.div
+      layout
+      className="bg-white rounded-xl px-3 py-2.5 flex items-center gap-3"
+    >
+      {statusIcon()}
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] font-medium text-neutral-700">{step.label}</div>
+        <div className={`text-[9px] mt-0.5 ${
+          step.status === "error" ? "text-red-400" :
+          step.status === "done" ? "text-emerald-600" :
+          "text-neutral-400"
+        }`}>
+          {step.detail}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div className="w-4 h-4 flex-shrink-0">
+      <motion.div
+        className="w-4 h-4 rounded-full"
+        style={{
+          border: "2px solid #e5e5e5",
+          borderTopColor: "#404040",
+        }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+      />
     </div>
   );
 }

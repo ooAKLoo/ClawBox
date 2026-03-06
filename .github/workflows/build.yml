@@ -1,0 +1,85 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "22.17.0"
+  OPENCLAW_VERSION: "latest"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14          # Apple Silicon runner
+            platform: mac
+            arch: arm64
+            electron_arch: arm64
+          - os: macos-13          # Intel runner
+            platform: mac
+            arch: x64
+            electron_arch: x64
+          - os: windows-latest
+            platform: win
+            arch: x64
+            electron_arch: x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare bundled runtime (Node.js + OpenClaw)
+        run: node scripts/download-openclaw.js
+        env:
+          NODE_VERSION: ${{ env.NODE_VERSION }}
+          OPENCLAW_VERSION: ${{ env.OPENCLAW_VERSION }}
+
+      - name: Verify runtime bundle
+        run: |
+          ls -la runtime/
+          ls -la runtime/node/
+          ls -la runtime/openclaw/node_modules/.bin/
+          cat runtime/manifest.json
+        shell: bash
+
+      - name: Build & Package
+        run: npx vite build && npx electron-builder --${{ matrix.platform }} --${{ matrix.electron_arch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClawBox-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.zip
+            release/*.yml
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/*.exe
+            release/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
