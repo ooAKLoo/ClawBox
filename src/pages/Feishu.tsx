@@ -46,9 +46,13 @@ const STEPS = [
   },
 ];
 
-const openLink = (url: string) => {
+const openLink = async (url: string) => {
   try {
-    window.clawbox?.openExternal(url);
+    if (window.clawbox?.openExternal) {
+      await window.clawbox.openExternal(url);
+    } else {
+      window.open(url, "_blank");
+    }
   } catch {
     window.open(url, "_blank");
   }

@@ -2,7 +2,7 @@
   "name": "clawbox",
   "version": "0.1.0",
   "description": "OpenClaw 中文飞书安全桌面版",
-  "type": "module",
+  "type": "commonjs",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

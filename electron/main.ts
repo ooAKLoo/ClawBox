@@ -1,11 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "path";
-import { fileURLToPath } from "url";
 import { spawn, ChildProcess } from "child_process";
 import fs from "fs";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let daemonProcess: ChildProcess | null = null;
@@ -30,6 +26,21 @@ function writeJsonFile(filename: string, data: unknown) {
   fs.writeFileSync(path.join(configDir, filename), JSON.stringify(data, null, 2));
 }
 
+const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173";
+
+function isExternalUrl(rawUrl: string) {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    // 排除应用自身的开发服务器地址
+    const devParsed = new URL(devServerUrl);
+    if (parsed.host === devParsed.host) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1060,
@@ -46,9 +57,24 @@ function createWindow() {
     },
   });
 
+  // 拦截 window.open，外链用系统默认浏览器打开
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalUrl(url)) {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
+  // 拦截页面内导航（如 <a href> 点击），阻止 webview 跳转
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isExternalUrl(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   if (isDev) {
-    const url = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5173";
-    mainWindow.loadURL(url);
+    mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -81,7 +107,7 @@ app.on("activate", () => {
 
 ipcMain.handle("check-node", async () => {
   return new Promise((resolve) => {
-    const proc = spawn("node", ["--version"]);
+    const proc = spawn("node", ["--version"], { shell: true });
     let output = "";
     proc.stdout.on("data", (data) => (output += data.toString()));
     proc.on("close", (code) => {
