@@ -33,6 +33,19 @@ export interface SecurityConfig {
   groupChatWhitelist: string[];
 }
 
+export interface AssistantConfig {
+  id: string;
+  name: string;
+  icon: string;
+  sceneId: string | null;
+  status: "running" | "paused";
+  trigger: string;
+  systemPrompt: string;
+  params: Record<string, string>;
+  cronJobId?: string;
+  createdAt: number;
+}
+
 export interface AppSettings {
   autoStart: boolean;
   autoUpdate: boolean;
@@ -93,6 +106,12 @@ interface ClawBoxAPI {
   setOnboardingComplete: (value: boolean) => Promise<void>;
   getVersion: () => Promise<string>;
   openExternal: (url: string) => Promise<void>;
+
+  // Assistants
+  listAssistants: () => Promise<AssistantConfig[]>;
+  createAssistant: (config: Omit<AssistantConfig, "id" | "createdAt">) => Promise<{ success: boolean; assistant?: AssistantConfig; error?: string }>;
+  removeAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
+  toggleAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {

@@ -59,4 +59,10 @@ contextBridge.exposeInMainWorld("clawbox", {
 
   // External links
   openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
+
+  // Assistants
+  listAssistants: () => ipcRenderer.invoke("list-assistants"),
+  createAssistant: (config: unknown) => ipcRenderer.invoke("create-assistant", config),
+  removeAssistant: (id: string) => ipcRenderer.invoke("remove-assistant", id),
+  toggleAssistant: (id: string) => ipcRenderer.invoke("toggle-assistant", id),
 });

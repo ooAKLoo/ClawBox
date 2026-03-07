@@ -45,7 +45,7 @@ const PROVIDERS = [
       "qwen3-next-80b-a3b-thinking": { input: 1, output: 10, note: "思考模式输出更贵" },
     } as Record<string, ModelPricing>,
     tag: "稳定推荐",
-    portalUrl: "https://bailian.console.aliyun.com/",
+    portalUrl: "https://bailian.console.aliyun.com/cn-beijing/?tab=model#/api-key",
     portalLabel: "打开阿里云百炼控制台",
   },
   {

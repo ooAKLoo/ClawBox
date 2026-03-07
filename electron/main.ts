@@ -176,9 +176,9 @@ function getOpenClawCommand(): { cmd: string; args: string[]; env: NodeJS.Proces
 
 // --- Helpers ---
 
-function runShell(cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+function runShell(cmd: string, args: string[], useShell = true): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: true });
+    const proc = spawn(cmd, args, { shell: useShell });
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
@@ -771,6 +771,261 @@ ipcMain.handle("activate-feishu-channel", async (_e, config: { appId: string; ap
   }
 
   return { success: false, stage: "timeout", error: "飞书长连接未在 15 秒内建立，请检查事件订阅是否已配置长连接模式，以及应用是否已发布", checks };
+});
+
+// --- Assistants ---
+
+interface AssistantConfig {
+  id: string;
+  name: string;
+  icon: string;
+  sceneId: string | null;
+  status: "running" | "paused";
+  trigger: string;
+  systemPrompt: string;
+  params: Record<string, string>;
+  cronJobId?: string;
+  createdAt: number;
+}
+
+function readAssistants(): AssistantConfig[] {
+  const raw = readJsonFile("assistants.json");
+  return raw?.assistants ?? [];
+}
+
+function writeAssistants(assistants: AssistantConfig[]) {
+  writeJsonFile("assistants.json", { assistants });
+}
+
+function runOpenClaw(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const { cmd, args: baseArgs } = getOpenClawCommand();
+  // Use shell: false to safely pass arguments containing newlines, quotes, etc.
+  return runShell(cmd, [...baseArgs, ...args], false);
+}
+
+/** Ensure Gateway is running, start it if not. Returns true if gateway is reachable. */
+async function ensureGateway(): Promise<boolean> {
+  // Check if already running
+  try {
+    await fetch(`http://127.0.0.1:${DAEMON_PORT}`, { signal: AbortSignal.timeout(2000) });
+    return true;
+  } catch { /* not running */ }
+
+  // Start it
+  if (daemonProcess) {
+    daemonProcess.kill();
+    daemonProcess = null;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  pushLog("info", "system", "助手需要 Gateway，正在自动启动...");
+  const result = await spawnDaemon();
+  return result.success;
+}
+
+/** Generate the SOUL.md system prompt content for a scene-based assistant */
+function buildSoulPrompt(name: string, systemPrompt: string): string {
+  return `# SOUL.md - ${name}\n\n${systemPrompt}\n`;
+}
+
+/** Convert a time string like "08:00" to a cron expression (minute hour * * *) */
+function timeToCron(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  return `${m ?? 0} ${h ?? 8} * * *`;
+}
+
+/** Detect the first configured delivery channel from openclaw.json */
+function getConfiguredChannel(): string {
+  try {
+    if (fs.existsSync(openclawConfigPath)) {
+      const cfg = JSON.parse(fs.readFileSync(openclawConfigPath, "utf-8"));
+      const channels = cfg.channels as Record<string, { enabled?: boolean }> | undefined;
+      if (channels) {
+        for (const [name, ch] of Object.entries(channels)) {
+          if (ch && ch.enabled !== false) return name;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return "last";
+}
+
+ipcMain.handle("list-assistants", async () => {
+  return readAssistants();
+});
+
+ipcMain.handle("create-assistant", async (_e, config: Omit<AssistantConfig, "id" | "createdAt">) => {
+  try {
+    const id = `ast-${Date.now()}`;
+    const workspaceDir = path.join(openclawConfigDir, "assistant-workspaces", id);
+
+    // Create workspace directory
+    fs.mkdirSync(workspaceDir, { recursive: true });
+
+    // Write SOUL.md (system prompt)
+    fs.writeFileSync(path.join(workspaceDir, "SOUL.md"), buildSoulPrompt(config.name, config.systemPrompt));
+
+    // Write IDENTITY.md
+    fs.writeFileSync(path.join(workspaceDir, "IDENTITY.md"), [
+      "# IDENTITY.md",
+      "",
+      `- **Name:** ${config.name}`,
+      `- **Vibe:** helpful, concise`,
+      "",
+    ].join("\n"));
+
+    // Create OpenClaw agent
+    const addResult = await runOpenClaw([
+      "agents", "add", id,
+      "--workspace", workspaceDir,
+      "--non-interactive",
+      "--json",
+    ]);
+    pushLog("info", "assistant", `Create agent ${id}: code=${addResult.code} stdout=${addResult.stdout}`);
+
+    if (addResult.code !== 0 && !addResult.stdout.includes(id)) {
+      return { success: false, error: `创建 Agent 失败: ${addResult.stderr || addResult.stdout}` };
+    }
+
+    // If trigger is time-based, create a cron job
+    let cronJobId: string | undefined;
+    const timeMatch = config.trigger.match(/每天\s*(\d{2}:\d{2})/);
+    if (timeMatch) {
+      // Cron management requires a running Gateway
+      const gwReady = await ensureGateway();
+      if (!gwReady) {
+        // Agent created but cron failed — clean up and report error
+        await runOpenClaw(["agents", "delete", id, "--json"]);
+        fs.rmSync(workspaceDir, { recursive: true, force: true });
+        return { success: false, error: "Gateway 启动失败，无法创建定时任务。请先在「通道」页面确认 Gateway 可正常启动。" };
+      }
+
+      const cronExpr = timeToCron(timeMatch[1]);
+      const deliveryChannel = getConfiguredChannel();
+      // Detect system timezone for correct cron scheduling
+      const systemTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
+      pushLog("info", "assistant", `Cron: channel=${deliveryChannel}, tz=${systemTz}, expr=${cronExpr}`);
+      const cronResult = await runOpenClaw([
+        "cron", "add",
+        "--agent", id,
+        "--name", config.name,
+        "--cron", cronExpr,
+        "--message", `请执行你的任务: ${config.name}`,
+        "--channel", deliveryChannel,
+        "--tz", systemTz,
+        "--announce",
+        "--json",
+      ]);
+      pushLog("info", "assistant", `Create cron for ${id}: code=${cronResult.code} stdout=${cronResult.stdout} stderr=${cronResult.stderr}`);
+
+      if (cronResult.code !== 0) {
+        // Agent created but cron failed — clean up
+        await runOpenClaw(["agents", "delete", id, "--json"]);
+        fs.rmSync(workspaceDir, { recursive: true, force: true });
+        return { success: false, error: `定时任务创建失败: ${cronResult.stderr || cronResult.stdout}` };
+      }
+
+      // Extract job id from JSON output
+      try {
+        const cronData = JSON.parse(cronResult.stdout);
+        cronJobId = cronData.id || cronData.jobId;
+      } catch {
+        const idMatch = cronResult.stdout.match(/"id"\s*:\s*"([^"]+)"/);
+        if (idMatch) cronJobId = idMatch[1];
+      }
+
+      if (!cronJobId) {
+        pushLog("warn", "assistant", `Cron job created but could not extract job id from output`);
+      }
+    }
+
+    const assistant: AssistantConfig = {
+      id,
+      name: config.name,
+      icon: config.icon,
+      sceneId: config.sceneId,
+      status: config.status,
+      trigger: config.trigger,
+      systemPrompt: config.systemPrompt,
+      params: config.params,
+      cronJobId,
+      createdAt: Date.now(),
+    };
+
+    // Persist to local storage
+    const assistants = readAssistants();
+    assistants.unshift(assistant);
+    writeAssistants(assistants);
+
+    pushLog("info", "assistant", `助手「${config.name}」已创建 (${id})`);
+    return { success: true, assistant };
+  } catch (err) {
+    pushLog("error", "assistant", `创建助手失败: ${err}`);
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle("remove-assistant", async (_e, id: string) => {
+  try {
+    const assistants = readAssistants();
+    const target = assistants.find((a) => a.id === id);
+    if (!target) return { success: false, error: "助手不存在" };
+
+    // Remove cron job if exists (requires Gateway)
+    if (target.cronJobId) {
+      await ensureGateway();
+      const rmResult = await runOpenClaw(["cron", "rm", target.cronJobId]);
+      pushLog("info", "assistant", `删除定时任务 ${target.cronJobId}: code=${rmResult.code}`);
+    }
+
+    // Delete OpenClaw agent
+    const delResult = await runOpenClaw(["agents", "delete", id, "--json"]);
+    pushLog("info", "assistant", `Delete agent ${id}: code=${delResult.code}`);
+
+    // Remove workspace directory
+    const workspaceDir = path.join(openclawConfigDir, "assistant-workspaces", id);
+    if (fs.existsSync(workspaceDir)) {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+
+    // Remove from local storage
+    writeAssistants(assistants.filter((a) => a.id !== id));
+
+    pushLog("info", "assistant", `助手「${target.name}」已移除`);
+    return { success: true };
+  } catch (err) {
+    pushLog("error", "assistant", `移除助手失败: ${err}`);
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle("toggle-assistant", async (_e, id: string) => {
+  try {
+    const assistants = readAssistants();
+    const target = assistants.find((a) => a.id === id);
+    if (!target) return { success: false, error: "助手不存在" };
+
+    const newStatus = target.status === "running" ? "paused" : "running";
+
+    // Toggle cron job if exists (requires Gateway)
+    if (target.cronJobId) {
+      await ensureGateway();
+      if (newStatus === "paused") {
+        await runOpenClaw(["cron", "disable", target.cronJobId]);
+      } else {
+        await runOpenClaw(["cron", "enable", target.cronJobId]);
+      }
+      pushLog("info", "assistant", `定时任务 ${target.cronJobId} 已${newStatus === "paused" ? "暂停" : "启用"}`);
+    }
+
+    target.status = newStatus;
+    writeAssistants(assistants);
+
+    pushLog("info", "assistant", `助手「${target.name}」已${newStatus === "paused" ? "暂停" : "启用"}`);
+    return { success: true };
+  } catch (err) {
+    pushLog("error", "assistant", `切换助手状态失败: ${err}`);
+    return { success: false, error: String(err) };
+  }
 });
 
 // --- Security config ---

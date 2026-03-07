@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type { AssistantConfig } from "../types/global";
 
 // --- Scene template types ---
 
@@ -19,17 +20,7 @@ interface SceneTemplate {
   tags: string[];
   params: SceneParam[];
   category: string;
-}
-
-interface Assistant {
-  id: string;
-  name: string;
-  icon: string;
-  sceneId: string | null;
-  status: "running" | "paused" | "error";
-  trigger: string;
-  model: string;
-  lastRun: string | null;
+  systemPrompt: string;
 }
 
 // --- Built-in scene templates ---
@@ -51,6 +42,13 @@ const SCENES: SceneTemplate[] = [
         default: "AI,科技,商业",
       },
     ],
+    systemPrompt: `你是一个新闻摘要助手。你的任务是：
+1. 搜索指定领域的最新新闻
+2. 筛选出最重要的 5-8 条新闻
+3. 用简洁的中文摘要呈现，每条包含标题、一句话摘要和来源
+4. 在开头附上日期和领域标签
+
+输出格式要求：简洁、结构化、易于快速浏览。`,
   },
   {
     id: "meeting-notes",
@@ -71,6 +69,13 @@ const SCENES: SceneTemplate[] = [
         ],
       },
     ],
+    systemPrompt: `你是一个会议纪要助手。当收到会议记录或对话内容时，你需要：
+1. 提取关键讨论要点
+2. 列出所有决策事项
+3. 整理待办任务（包含负责人和截止时间，如有）
+4. 简要总结会议结论
+
+保持客观准确，不添加原文中没有的信息。`,
   },
   {
     id: "translate",
@@ -92,6 +97,13 @@ const SCENES: SceneTemplate[] = [
         ],
       },
     ],
+    systemPrompt: `你是一个专业翻译助手。收到任何消息后：
+1. 自动检测源语言
+2. 翻译为目标语言
+3. 保持原文的语气和风格
+4. 对于专业术语，在括号中附上原文
+
+只输出翻译结果，不需要额外解释。`,
   },
   {
     id: "daily-report",
@@ -113,6 +125,13 @@ const SCENES: SceneTemplate[] = [
         ],
       },
     ],
+    systemPrompt: `你是一个日报生成助手。你的任务是：
+1. 收集并整理当天的工作内容
+2. 按照指定格式生成结构化日报
+3. 突出完成的任务和进展
+4. 列出遇到的问题和明日计划
+
+输出要简洁、专业，适合发送给团队或上级。`,
   },
   {
     id: "reminder",
@@ -122,6 +141,13 @@ const SCENES: SceneTemplate[] = [
     tags: ["定时", "消息"],
     category: "生活",
     params: [],
+    systemPrompt: `你是一个智能提醒助手。当用户发送消息时：
+1. 理解用户想要被提醒的事项
+2. 提取时间信息（如果有）
+3. 确认提醒内容和时间
+4. 到时间后发送友好的提醒消息
+
+保持简洁友好的语气。`,
   },
   {
     id: "code-review",
@@ -144,6 +170,13 @@ const SCENES: SceneTemplate[] = [
         ],
       },
     ],
+    systemPrompt: `你是一个代码审查助手。当收到代码片段时：
+1. 检查代码质量和潜在 bug
+2. 评估安全性（注入、XSS 等常见漏洞）
+3. 建议性能优化
+4. 提出代码风格和可读性改进
+
+用清晰的标记区分「问题」和「建议」，给出具体的修改示例。`,
   },
 ];
 
@@ -158,13 +191,71 @@ const SCENE_ICONS: Record<string, string> = {
 
 const CATEGORIES = ["全部", "效率", "信息", "生活", "开发"];
 
+/** Build the final system prompt with user-configured params */
+function buildSystemPrompt(scene: SceneTemplate, params: Record<string, string>): string {
+  let prompt = scene.systemPrompt;
+
+  // Append param-specific instructions
+  const additions: string[] = [];
+  for (const p of scene.params) {
+    const val = params[p.key];
+    if (!val) continue;
+    if (p.key === "topics") additions.push(`关注领域: ${val}`);
+    if (p.key === "targetLang") {
+      const label = p.options?.find((o) => o.value === val)?.label ?? val;
+      additions.push(`目标语言: ${label}`);
+    }
+    if (p.key === "style") {
+      const label = p.options?.find((o) => o.value === val)?.label ?? val;
+      additions.push(`输出风格: ${label}`);
+    }
+    if (p.key === "format") {
+      const label = p.options?.find((o) => o.value === val)?.label ?? val;
+      additions.push(`日报格式: ${label}`);
+    }
+    if (p.key === "lang") {
+      const label = p.options?.find((o) => o.value === val)?.label ?? val;
+      additions.push(`主要编程语言: ${label}`);
+    }
+  }
+
+  if (additions.length > 0) {
+    prompt += `\n\n## 用户配置\n${additions.map((a) => `- ${a}`).join("\n")}`;
+  }
+
+  return prompt;
+}
+
+/** Derive trigger string from scene + params */
+function deriveTrigger(scene: SceneTemplate, params: Record<string, string>): string {
+  if (params.time) return `每天 ${params.time}`;
+  return "收到消息时";
+}
+
 export default function Assistants() {
-  const [assistants, setAssistants] = useState<Assistant[]>([]);
+  const [assistants, setAssistants] = useState<AssistantConfig[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState("全部");
   const [setupScene, setSetupScene] = useState<SceneTemplate | null>(null);
   const [setupParams, setSetupParams] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
   const [createMode, setCreateMode] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Load assistants from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await window.clawbox?.listAssistants();
+        if (list) setAssistants(list);
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   const filteredScenes =
     activeCategory === "全部"
@@ -178,55 +269,90 @@ export default function Assistants() {
     });
     setSetupParams(defaults);
     setSetupScene(scene);
+    setError(null);
   };
 
-  const handleConfirmSetup = () => {
+  const handleConfirmSetup = async () => {
     if (!setupScene) return;
-    const newAssistant: Assistant = {
-      id: `ast-${Date.now()}`,
-      name: setupScene.name,
-      icon: setupScene.icon,
-      sceneId: setupScene.id,
-      status: "running",
-      trigger:
-        setupParams.time ? `每天 ${setupParams.time}` : "收到消息时",
-      model: "继承全局",
-      lastRun: null,
-    };
-    setAssistants((prev) => [newAssistant, ...prev]);
-    setSetupScene(null);
-    setSetupParams({});
+    setCreating(true);
+    setError(null);
+
+    const trigger = deriveTrigger(setupScene, setupParams);
+    const systemPrompt = buildSystemPrompt(setupScene, setupParams);
+
+    try {
+      const result = await window.clawbox?.createAssistant({
+        name: setupScene.name,
+        icon: setupScene.icon,
+        sceneId: setupScene.id,
+        status: "running",
+        trigger,
+        systemPrompt,
+        params: setupParams,
+      });
+
+      if (result?.success && result.assistant) {
+        setAssistants((prev) => [result.assistant!, ...prev]);
+        setSetupScene(null);
+        setSetupParams({});
+      } else {
+        setError(result?.error || "创建失败");
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const handleCreateFromPrompt = () => {
+  const handleCreateFromPrompt = async () => {
     if (!createPrompt.trim()) return;
-    const newAssistant: Assistant = {
-      id: `ast-${Date.now()}`,
-      name: createPrompt.slice(0, 20) + (createPrompt.length > 20 ? "..." : ""),
-      icon: "news",
-      sceneId: null,
-      status: "running",
-      trigger: "收到消息时",
-      model: "继承全局",
-      lastRun: null,
-    };
-    setAssistants((prev) => [newAssistant, ...prev]);
-    setCreateMode(false);
-    setCreatePrompt("");
+    setCreating(true);
+    setError(null);
+
+    try {
+      const result = await window.clawbox?.createAssistant({
+        name: createPrompt.slice(0, 20) + (createPrompt.length > 20 ? "..." : ""),
+        icon: "news",
+        sceneId: null,
+        status: "running",
+        trigger: "收到消息时",
+        systemPrompt: createPrompt,
+        params: {},
+      });
+
+      if (result?.success && result.assistant) {
+        setAssistants((prev) => [result.assistant!, ...prev]);
+        setCreateMode(false);
+        setCreatePrompt("");
+      } else {
+        setError(result?.error || "创建失败");
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setCreating(false);
+    }
   };
 
-  const toggleAssistant = (id: string) => {
-    setAssistants((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, status: a.status === "running" ? "paused" : "running" }
-          : a
-      )
-    );
+  const toggleAssistant = async (id: string) => {
+    const result = await window.clawbox?.toggleAssistant(id);
+    if (result?.success) {
+      setAssistants((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? { ...a, status: a.status === "running" ? "paused" : "running" }
+            : a
+        )
+      );
+    }
   };
 
-  const removeAssistant = (id: string) => {
-    setAssistants((prev) => prev.filter((a) => a.id !== id));
+  const removeAssistant = async (id: string) => {
+    const result = await window.clawbox?.removeAssistant(id);
+    if (result?.success) {
+      setAssistants((prev) => prev.filter((a) => a.id !== id));
+    }
   };
 
   return (
@@ -241,7 +367,7 @@ export default function Assistants() {
         </div>
         <motion.button
           whileTap={{ scale: 0.97 }}
-          onClick={() => setCreateMode(true)}
+          onClick={() => { setCreateMode(true); setError(null); }}
           className="text-[10px] font-medium px-3 py-1.5 rounded-lg bg-neutral-800 text-white"
         >
           + 新建助手
@@ -249,7 +375,11 @@ export default function Assistants() {
       </div>
 
       {/* My assistants */}
-      {assistants.length > 0 && (
+      {loading ? (
+        <div className="mb-6">
+          <div className="text-[10px] text-neutral-400 text-center py-8">加载中...</div>
+        </div>
+      ) : assistants.length > 0 ? (
         <div className="mb-6">
           <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
             我的助手
@@ -276,8 +406,7 @@ export default function Assistants() {
                           {a.name}
                         </div>
                         <div className="text-[9px] text-neutral-400 mt-0.5">
-                          {a.trigger} · {a.model}
-                          {a.lastRun ? ` · ${a.lastRun}` : ""}
+                          {a.trigger} · 继承全局模型
                         </div>
                       </div>
                     </div>
@@ -287,17 +416,11 @@ export default function Assistants() {
                           className={`w-1.5 h-1.5 rounded-full ${
                             a.status === "running"
                               ? "bg-emerald-500"
-                              : a.status === "error"
-                                ? "bg-red-400"
-                                : "bg-neutral-300"
+                              : "bg-neutral-300"
                           }`}
                         />
                         <span className="text-[9px] text-neutral-400">
-                          {a.status === "running"
-                            ? "运行中"
-                            : a.status === "error"
-                              ? "异常"
-                              : "已暂停"}
+                          {a.status === "running" ? "运行中" : "已暂停"}
                         </span>
                       </div>
                       <motion.button
@@ -321,7 +444,7 @@ export default function Assistants() {
             </AnimatePresence>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Scene market */}
       <div>
@@ -394,7 +517,7 @@ export default function Assistants() {
         </div>
       </div>
 
-      {/* Setup dialog — scene params */}
+      {/* Setup dialog -- scene params */}
       <AnimatePresence>
         {setupScene && (
           <motion.div
@@ -403,7 +526,7 @@ export default function Assistants() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 bg-black/20 flex items-center justify-center z-50"
-            onClick={() => setSetupScene(null)}
+            onClick={() => { if (!creating) setSetupScene(null); }}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -478,20 +601,32 @@ export default function Assistants() {
                 </div>
               )}
 
+              {error && (
+                <div className="mb-3 px-3 py-2 bg-red-50 rounded-xl">
+                  <p className="text-[10px] text-red-500">{error}</p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <motion.button
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setSetupScene(null)}
+                  disabled={creating}
                   className="text-[10px] font-medium px-4 py-2 rounded-lg bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
                 >
                   取消
                 </motion.button>
                 <motion.button
-                  whileTap={{ scale: 0.97 }}
+                  whileTap={creating ? undefined : { scale: 0.97 }}
                   onClick={handleConfirmSetup}
-                  className="text-[10px] font-medium px-4 py-2 rounded-lg bg-neutral-800 text-white"
+                  disabled={creating}
+                  className={`text-[10px] font-medium px-4 py-2 rounded-lg ${
+                    creating
+                      ? "bg-neutral-300 text-neutral-500 cursor-not-allowed"
+                      : "bg-neutral-800 text-white"
+                  }`}
                 >
-                  启用助手
+                  {creating ? "创建中..." : "启用助手"}
                 </motion.button>
               </div>
             </motion.div>
@@ -508,7 +643,7 @@ export default function Assistants() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 bg-black/20 flex items-center justify-center z-50"
-            onClick={() => setCreateMode(false)}
+            onClick={() => { if (!creating) setCreateMode(false); }}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -540,25 +675,32 @@ export default function Assistants() {
                 </div>
               </div>
 
+              {error && (
+                <div className="mb-3 px-3 py-2 bg-red-50 rounded-xl">
+                  <p className="text-[10px] text-red-500">{error}</p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <motion.button
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setCreateMode(false)}
+                  disabled={creating}
                   className="text-[10px] font-medium px-4 py-2 rounded-lg bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
                 >
                   取消
                 </motion.button>
                 <motion.button
-                  whileTap={{ scale: 0.97 }}
+                  whileTap={creating ? undefined : { scale: 0.97 }}
                   onClick={handleCreateFromPrompt}
-                  disabled={!createPrompt.trim()}
+                  disabled={!createPrompt.trim() || creating}
                   className={`text-[10px] font-medium px-4 py-2 rounded-lg ${
-                    createPrompt.trim()
+                    createPrompt.trim() && !creating
                       ? "bg-neutral-800 text-white"
-                      : "bg-neutral-200 text-neutral-400"
+                      : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                   }`}
                 >
-                  创建
+                  {creating ? "创建中..." : "创建"}
                 </motion.button>
               </div>
             </motion.div>
