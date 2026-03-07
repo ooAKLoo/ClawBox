@@ -69,6 +69,9 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
+      "signIgnore": [
+        "\\/Contents\\/Resources\\/runtime\\/openclaw\\/node_modules\\/.*\\.(js|mjs|cjs|json|map|ts|tsx|md|markdown|txt|yaml|yml)$"
+      ],
       "notarize": {
         "teamId": "9YFT3H8S93"
       }

@@ -11,6 +11,7 @@
  */
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { execSync } = require("child_process");
 const https = require("https");
@@ -96,15 +97,6 @@ async function main() {
       `tar -xzf "${archivePath}" -C "${NODE_DIR}" --strip-components=1 "${filename}/bin/node"`,
       { stdio: "inherit" }
     );
-    // Also extract lib/node_modules/npm for npm usage during openclaw install
-    try {
-      execSync(
-        `tar -xzf "${archivePath}" -C "${NODE_DIR}" --strip-components=1 "${filename}/bin/npm" "${filename}/bin/npx" "${filename}/lib"`,
-        { stdio: "inherit" }
-      );
-    } catch {
-      console.log("      Warning: Could not extract npm, will use system npm for openclaw install");
-    }
   } else {
     // Windows zip
     execSync(
@@ -116,12 +108,6 @@ async function main() {
     if (fs.existsSync(nestedDir)) {
       // Copy node.exe
       fs.cpSync(path.join(nestedDir, "node.exe"), path.join(NODE_DIR, "node.exe"));
-      // Copy npm
-      if (fs.existsSync(path.join(nestedDir, "npm.cmd"))) {
-        fs.cpSync(path.join(nestedDir, "npm.cmd"), path.join(NODE_DIR, "npm.cmd"));
-        fs.cpSync(path.join(nestedDir, "npx.cmd"), path.join(NODE_DIR, "npx.cmd"));
-        fs.cpSync(path.join(nestedDir, "node_modules"), path.join(NODE_DIR, "node_modules"), { recursive: true });
-      }
       fs.rmSync(nestedDir, { recursive: true });
     }
   }
@@ -139,6 +125,8 @@ async function main() {
 
   // Use system npm with bundled node to install openclaw into OPENCLAW_DIR
   fs.mkdirSync(OPENCLAW_DIR, { recursive: true });
+  const npmCacheDir = path.join(os.tmpdir(), "clawbox-npm-cache");
+  fs.mkdirSync(npmCacheDir, { recursive: true });
 
   // Initialize a minimal package.json so npm install works in the dir
   fs.writeFileSync(
@@ -148,7 +136,15 @@ async function main() {
 
   execSync(
     `npm install openclaw@${OPENCLAW_VERSION} --prefix "${OPENCLAW_DIR}"`,
-    { stdio: "inherit", env: { ...process.env, PATH: process.env.PATH } }
+    {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        PATH: process.env.PATH,
+        npm_config_cache: npmCacheDir,
+        NPM_CONFIG_CACHE: npmCacheDir,
+      },
+    }
   );
 
   // Verify the openclaw binary exists
