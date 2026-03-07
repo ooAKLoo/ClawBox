@@ -59,7 +59,6 @@
       "target": [
         { "target": "dmg", "arch": ["arm64", "x64"] }
       ],
-      "identity": "Dongju Yang (9YFT3H8S93)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",

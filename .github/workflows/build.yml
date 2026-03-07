@@ -51,8 +51,6 @@ jobs:
       - name: Build macOS (x64)
         run: npx vite build && npx electron-builder --mac --x64 --publish never
         env:
-          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -65,8 +63,6 @@ jobs:
       - name: Build macOS (ARM64)
         run: npx vite build && npx electron-builder --mac --arm64 --publish never
         env:
-          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
