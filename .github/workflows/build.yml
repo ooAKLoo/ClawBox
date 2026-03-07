@@ -49,7 +49,7 @@ jobs:
           TARGET_ARCH: x64
 
       - name: Build macOS (x64)
-        run: npx vite build && npx electron-builder --mac --x64 --publish never
+        run: ulimit -n 65536 && npx vite build && npx electron-builder --mac --x64 --publish never
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -61,7 +61,7 @@ jobs:
           TARGET_ARCH: arm64
 
       - name: Build macOS (ARM64)
-        run: npx vite build && npx electron-builder --mac --arm64 --publish never
+        run: ulimit -n 65536 && npx vite build && npx electron-builder --mac --arm64 --publish never
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
