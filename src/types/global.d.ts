@@ -35,27 +35,13 @@ export interface AppSettings {
 export interface DaemonStatus {
   running: boolean;
   pid: number | null;
-  uptime: string | null;
   port: number;
-}
-
-export interface FeishuStatus {
-  connected: boolean;
-  botName: string | null;
-  lastMessage: string | null;
-}
-
-export interface ModelStatus {
-  available: boolean;
-  provider: string | null;
-  model: string | null;
-  latency: number | null;
 }
 
 export interface LogEntry {
   time: string;
   level: "info" | "warn" | "error";
-  category: "system" | "feishu" | "model" | "gateway";
+  category: "system" | "assistant" | "model" | "gateway";
   msg: string;
 }
 
@@ -69,26 +55,25 @@ export interface InstallProgress {
 }
 
 interface ClawBoxAPI {
-  checkNode: () => Promise<{ installed: boolean; version: string | null }>;
-  checkOpenClaw: () => Promise<{ installed: boolean; version: string | null }>;
-  installOpenClaw: () => Promise<{ success: boolean; output: string }>;
   installEnvironment: () => Promise<{ success: boolean; failedStep?: string; errorDetail?: string }>;
   onInstallProgress: (callback: (progress: InstallProgress) => void) => () => void;
   startDaemon: () => Promise<{ success: boolean; message: string }>;
   stopDaemon: () => Promise<{ success: boolean }>;
   restartDaemon: () => Promise<{ success: boolean }>;
   getDaemonStatus: () => Promise<DaemonStatus>;
+  openBrowserControl: () => Promise<{ success: boolean; message?: string }>;
   getPlatform: () => Promise<string>;
   testModelConnection: (provider: ModelProvider) => Promise<{ success: boolean; latency: number; error?: string }>;
   saveModelConfig: (provider: ModelProvider) => Promise<{ success: boolean }>;
   getModelConfig: () => Promise<ModelProvider | null>;
+  getAllModelConfigs: () => Promise<{ activeId: string | null; providers: Record<string, ModelProvider> }>;
   saveFeishuConfig: (config: FeishuConfig) => Promise<{ success: boolean }>;
   getFeishuConfig: () => Promise<FeishuConfig | null>;
   testFeishuConnection: () => Promise<{ success: boolean; botName?: string; error?: string }>;
-  sendTestMessage: (message: string) => Promise<{ success: boolean; error?: string }>;
   saveSecurityConfig: (config: SecurityConfig) => Promise<{ success: boolean }>;
   getSecurityConfig: () => Promise<SecurityConfig>;
-  getLogs: (filter?: string) => Promise<LogEntry[]>;
+  getLogs: () => Promise<LogEntry[]>;
+  onDaemonLog: (callback: (entry: LogEntry) => void) => () => void;
   clearLogs: () => Promise<{ success: boolean }>;
   exportLogs: () => Promise<{ success: boolean; path: string }>;
   runDiagnostics: () => Promise<{ checks: { name: string; passed: boolean; detail: string }[] }>;
@@ -96,7 +81,6 @@ interface ClawBoxAPI {
   getSettings: () => Promise<AppSettings>;
   getOnboardingComplete: () => Promise<boolean>;
   setOnboardingComplete: (value: boolean) => Promise<void>;
-  checkUpdate: () => Promise<{ hasUpdate: boolean; version?: string }>;
   getVersion: () => Promise<string>;
   openExternal: (url: string) => Promise<void>;
 }

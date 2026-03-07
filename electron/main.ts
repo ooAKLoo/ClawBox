@@ -6,6 +6,23 @@ import fs from "fs";
 let mainWindow: BrowserWindow | null = null;
 let daemonProcess: ChildProcess | null = null;
 
+// --- In-memory log ring buffer ---
+const MAX_LOG_ENTRIES = 2000;
+const logBuffer: { time: string; level: "info" | "warn" | "error"; category: "system" | "assistant" | "model" | "gateway"; msg: string }[] = [];
+
+function pushLog(level: "info" | "warn" | "error", category: "system" | "assistant" | "model" | "gateway", msg: string) {
+  const entry = {
+    time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    level,
+    category,
+    msg,
+  };
+  logBuffer.push(entry);
+  if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.splice(0, logBuffer.length - MAX_LOG_ENTRIES);
+  // Push to renderer in real-time
+  mainWindow?.webContents.send("daemon-log", entry);
+}
+
 const isDev = !app.isPackaged;
 const configDir = path.join(app.getPath("userData"), "clawbox-config");
 
@@ -195,37 +212,6 @@ function detectBundledRuntime(): {
   };
 }
 
-// --- System checks ---
-
-ipcMain.handle("check-node", async () => {
-  const runtime = detectBundledRuntime();
-  if (runtime.available) {
-    return { installed: true, version: `v${runtime.nodeVersion} (bundled)` };
-  }
-  // Fallback: check system node
-  const r = await runShell("node", ["--version"]);
-  return { installed: r.code === 0, version: r.code === 0 ? r.stdout : null };
-});
-
-ipcMain.handle("check-openclaw", async () => {
-  const runtime = detectBundledRuntime();
-  if (runtime.available) {
-    return { installed: true, version: `${runtime.openclawVersion} (bundled)` };
-  }
-  // Fallback: check global openclaw
-  const r = await runShell("openclaw", ["--version"]);
-  if (r.code === 0) return { installed: true, version: r.stdout };
-  return { installed: false, version: null };
-});
-
-ipcMain.handle("install-openclaw", async () => {
-  const runtime = detectBundledRuntime();
-  if (runtime.available) {
-    return { success: true, output: `Bundled runtime ready (openclaw@${runtime.openclawVersion})` };
-  }
-  throw new Error("Bundled runtime not found. Please reinstall ClawBox.");
-});
-
 // --- Environment verification pipeline ---
 
 type InstallStepStatus = "pending" | "running" | "done" | "error" | "skipped";
@@ -291,18 +277,85 @@ ipcMain.handle("install-environment", async (event) => {
 
 // --- Daemon management ---
 
-ipcMain.handle("start-daemon", async () => {
-  return new Promise((resolve, reject) => {
-    if (daemonProcess) {
-      resolve({ success: true, message: "Daemon already running" });
-      return;
+const DAEMON_PORT = 18789;
+const DAEMON_START_TIMEOUT = 15000; // 15s max wait
+const DAEMON_POLL_INTERVAL = 500;   // poll every 500ms
+
+async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(1000) });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, DAEMON_POLL_INTERVAL));
     }
+  }
+  return false;
+}
+
+function spawnDaemon(): Promise<{ success: boolean; message: string }> {
+  return new Promise(async (resolve, reject) => {
     const { cmd, args, env } = getOpenClawCommand();
-    daemonProcess = spawn(cmd, [...args, "daemon", "start"], { shell: true, env });
-    daemonProcess.on("error", (err) => reject(err));
-    daemonProcess.on("exit", () => { daemonProcess = null; });
-    setTimeout(() => resolve({ success: true, message: "Daemon started" }), 2000);
+    const fullArgs = [...args, "gateway", "run", "--port", String(DAEMON_PORT), "--allow-unconfigured", "--auth", "none"];
+    console.log("[ClawBox] Spawning gateway:", cmd, fullArgs.join(" "));
+    daemonProcess = spawn(cmd, fullArgs, { shell: true, env });
+
+    let exited = false;
+    daemonProcess.stdout?.on("data", (d) => {
+      const line = d.toString().trim();
+      if (!line) return;
+      console.log("[daemon stdout]", line);
+      // Parse level from openclaw log format: "timestamp [tag] message"
+      const level = /\berror\b/i.test(line) ? "error" as const : /\bwarn/i.test(line) ? "warn" as const : "info" as const;
+      pushLog(level, "gateway", line);
+    });
+    daemonProcess.stderr?.on("data", (d) => {
+      const line = d.toString().trim();
+      if (!line) return;
+      console.error("[daemon stderr]", line);
+      pushLog("error", "gateway", line);
+    });
+    daemonProcess.on("error", (err) => {
+      console.error("[ClawBox] Daemon spawn error:", err);
+      pushLog("error", "system", `Daemon spawn error: ${err.message}`);
+      daemonProcess = null;
+      reject(err);
+    });
+    daemonProcess.on("exit", (code) => {
+      console.log("[ClawBox] Daemon exited with code:", code);
+      pushLog("info", "system", `Daemon exited with code ${code}`);
+      exited = true;
+      daemonProcess = null;
+    });
+
+    const reachable = await waitForPort(DAEMON_PORT, DAEMON_START_TIMEOUT);
+    if (reachable) {
+      resolve({ success: true, message: "Daemon started" });
+    } else if (exited) {
+      resolve({ success: false, message: "Daemon process exited before port became reachable" });
+    } else {
+      // Process still alive but port not responding — kill it
+      if (daemonProcess) {
+        daemonProcess.kill();
+        daemonProcess = null;
+      }
+      resolve({ success: false, message: `Daemon failed to listen on port ${DAEMON_PORT} within ${DAEMON_START_TIMEOUT / 1000}s` });
+    }
   });
+}
+
+ipcMain.handle("start-daemon", async () => {
+  if (daemonProcess) {
+    const reachable = await waitForPort(DAEMON_PORT, 2000);
+    if (reachable) {
+      return { success: true, message: "Daemon already running" };
+    }
+    // Process exists but port not reachable — kill and restart
+    daemonProcess.kill();
+    daemonProcess = null;
+  }
+  return spawnDaemon();
 });
 
 ipcMain.handle("stop-daemon", async () => {
@@ -318,33 +371,73 @@ ipcMain.handle("restart-daemon", async () => {
     daemonProcess.kill();
     daemonProcess = null;
   }
-  return new Promise((resolve, reject) => {
-    const { cmd, args, env } = getOpenClawCommand();
-    daemonProcess = spawn(cmd, [...args, "daemon", "start"], { shell: true, env });
-    daemonProcess.on("error", (err) => reject(err));
-    daemonProcess.on("exit", () => { daemonProcess = null; });
-    setTimeout(() => resolve({ success: true }), 2000);
-  });
+  // Wait a moment for port to be released
+  await new Promise((r) => setTimeout(r, 500));
+  return spawnDaemon();
 });
 
 ipcMain.handle("get-daemon-status", async () => {
+  // Check if the process reference exists AND the port is actually reachable
+  let portReachable = false;
+  if (daemonProcess !== null) {
+    try {
+      await fetch("http://127.0.0.1:18789", { signal: AbortSignal.timeout(2000) });
+      portReachable = true;
+    } catch {
+      // Port not reachable — process may have crashed or not started yet
+    }
+  }
   return {
-    running: daemonProcess !== null,
+    running: daemonProcess !== null && portReachable,
     pid: daemonProcess?.pid ?? null,
-    uptime: null,
     port: 18789,
   };
 });
 
+// --- Browser Control ---
+
+ipcMain.handle("open-browser-control", async () => {
+  // The OpenClaw web UI is served at /app on the gateway port
+  const url = `http://127.0.0.1:${DAEMON_PORT}/app`;
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(2000) });
+  } catch {
+    return { success: false, message: "Gateway 不可达，请确认已启动" };
+  }
+  await shell.openExternal(url);
+  return { success: true };
+});
+
 // --- Model config ---
 
+function readModelData(): { activeId: string | null; providers: Record<string, unknown> } {
+  const raw = readJsonFile("model.json");
+  if (!raw) return { activeId: null, providers: {} };
+  // Migrate old flat format → new multi-provider format
+  if (raw.id && !raw.activeId) {
+    const migrated = { activeId: raw.id, providers: { [raw.id]: raw } };
+    writeJsonFile("model.json", migrated);
+    return migrated;
+  }
+  return { activeId: raw.activeId ?? null, providers: raw.providers ?? {} };
+}
+
 ipcMain.handle("save-model-config", async (_e, provider) => {
-  writeJsonFile("model.json", provider);
+  const data = readModelData();
+  data.activeId = provider.id;
+  data.providers[provider.id] = provider;
+  writeJsonFile("model.json", data);
   return { success: true };
 });
 
 ipcMain.handle("get-model-config", async () => {
-  return readJsonFile("model.json");
+  const data = readModelData();
+  if (!data.activeId) return null;
+  return (data.providers[data.activeId] as Record<string, unknown>) ?? null;
+});
+
+ipcMain.handle("get-all-model-configs", async () => {
+  return readModelData();
 });
 
 ipcMain.handle("test-model-connection", async (_e, provider) => {
@@ -408,11 +501,6 @@ ipcMain.handle("test-feishu-connection", async () => {
   }
 });
 
-ipcMain.handle("send-test-message", async (_e, message) => {
-  // Placeholder — would send via OpenClaw Feishu channel
-  return { success: true };
-});
-
 // --- Security config ---
 
 const defaultSecurity = {
@@ -438,19 +526,18 @@ ipcMain.handle("get-security-config", async () => {
 
 // --- Logs ---
 
-ipcMain.handle("get-logs", async (_e, _filter) => {
-  return readJsonFile("logs.json") || [];
+ipcMain.handle("get-logs", async () => {
+  return [...logBuffer];
 });
 
 ipcMain.handle("clear-logs", async () => {
-  writeJsonFile("logs.json", []);
+  logBuffer.length = 0;
   return { success: true };
 });
 
 ipcMain.handle("export-logs", async () => {
-  const logs = readJsonFile("logs.json") || [];
   const exportPath = path.join(app.getPath("desktop"), `clawbox-logs-${Date.now()}.json`);
-  fs.writeFileSync(exportPath, JSON.stringify(logs, null, 2));
+  fs.writeFileSync(exportPath, JSON.stringify(logBuffer, null, 2));
   return { success: true, path: exportPath };
 });
 
@@ -481,8 +568,9 @@ ipcMain.handle("run-diagnostics", async () => {
   }
 
   // Model config
-  const model = readJsonFile("model.json");
-  checks.push({ name: "模型配置", passed: !!model?.apiKey, detail: model ? `${model.name} - ${model.model}` : "未配置" });
+  const modelData = readModelData();
+  const activeModel = modelData.activeId ? (modelData.providers[modelData.activeId] as Record<string, string> | undefined) : null;
+  checks.push({ name: "模型配置", passed: !!activeModel?.apiKey, detail: activeModel ? `${activeModel.name} - ${activeModel.model}` : "未配置" });
 
   // Feishu config
   const feishu = readJsonFile("feishu.json");
@@ -536,6 +624,3 @@ ipcMain.handle("open-external", async (_e, url: string) => {
 ipcMain.handle("get-platform", () => process.platform);
 ipcMain.handle("get-version", () => app.getVersion());
 
-ipcMain.handle("check-update", async () => {
-  return { hasUpdate: false };
-});

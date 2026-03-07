@@ -2,9 +2,6 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("clawbox", {
   // System
-  checkNode: () => ipcRenderer.invoke("check-node"),
-  checkOpenClaw: () => ipcRenderer.invoke("check-openclaw"),
-  installOpenClaw: () => ipcRenderer.invoke("install-openclaw"),
   installEnvironment: () => ipcRenderer.invoke("install-environment"),
   onInstallProgress: (callback: (progress: { step: string; status: string; detail: string }) => void) => {
     const handler = (_event: unknown, progress: { step: string; status: string; detail: string }) => callback(progress);
@@ -13,7 +10,6 @@ contextBridge.exposeInMainWorld("clawbox", {
   },
   getPlatform: () => ipcRenderer.invoke("get-platform"),
   getVersion: () => ipcRenderer.invoke("get-version"),
-  checkUpdate: () => ipcRenderer.invoke("check-update"),
 
   // Daemon
   startDaemon: () => ipcRenderer.invoke("start-daemon"),
@@ -21,25 +17,32 @@ contextBridge.exposeInMainWorld("clawbox", {
   restartDaemon: () => ipcRenderer.invoke("restart-daemon"),
   getDaemonStatus: () => ipcRenderer.invoke("get-daemon-status"),
 
+  openBrowserControl: () => ipcRenderer.invoke("open-browser-control"),
+
   // Model
   testModelConnection: (provider: unknown) => ipcRenderer.invoke("test-model-connection", provider),
   saveModelConfig: (provider: unknown) => ipcRenderer.invoke("save-model-config", provider),
   getModelConfig: () => ipcRenderer.invoke("get-model-config"),
+  getAllModelConfigs: () => ipcRenderer.invoke("get-all-model-configs"),
 
   // Feishu
   saveFeishuConfig: (config: unknown) => ipcRenderer.invoke("save-feishu-config", config),
   getFeishuConfig: () => ipcRenderer.invoke("get-feishu-config"),
   testFeishuConnection: () => ipcRenderer.invoke("test-feishu-connection"),
-  sendTestMessage: (message: string) => ipcRenderer.invoke("send-test-message", message),
 
   // Security
   saveSecurityConfig: (config: unknown) => ipcRenderer.invoke("save-security-config", config),
   getSecurityConfig: () => ipcRenderer.invoke("get-security-config"),
 
   // Logs
-  getLogs: (filter?: string) => ipcRenderer.invoke("get-logs", filter),
+  getLogs: () => ipcRenderer.invoke("get-logs"),
   clearLogs: () => ipcRenderer.invoke("clear-logs"),
   exportLogs: () => ipcRenderer.invoke("export-logs"),
+  onDaemonLog: (callback: (entry: { time: string; level: string; category: string; msg: string }) => void) => {
+    const handler = (_event: unknown, entry: { time: string; level: string; category: string; msg: string }) => callback(entry);
+    ipcRenderer.on("daemon-log", handler);
+    return () => { ipcRenderer.removeListener("daemon-log", handler); };
+  },
 
   // Diagnostics
   runDiagnostics: () => ipcRenderer.invoke("run-diagnostics"),

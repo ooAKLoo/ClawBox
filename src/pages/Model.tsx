@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import type { ModelProvider } from "../types/global";
 
@@ -191,39 +191,64 @@ export default function Model() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; latency?: number; error?: string } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [allConfigs, setAllConfigs] = useState<{ activeId: string | null; providers: Record<string, ModelProvider> }>({ activeId: null, providers: {} });
+  const initialLoadRef = useRef(false);
 
   const active = PROVIDERS.find((p) => p.id === activeId)!;
 
-  useEffect(() => {
-    setApiKey("");
-    setTestResult(null);
-    setSaved(false);
-    if (active.models.length > 0) {
-      setSelectedModel(active.models[0]);
-    } else {
-      setSelectedModel("");
-    }
-  }, [activeId]);
-
+  // Load all saved configs on mount
   useEffect(() => {
     (async () => {
       try {
-        const config = await window.clawbox?.getModelConfig();
-        if (config) {
-          setActiveId(config.id);
-          setApiKey(config.apiKey);
-          if (config.id === "custom") {
-            setCustomBaseUrl(config.baseUrl);
-            setCustomModel(config.model);
-          } else {
-            setSelectedModel(config.model);
+        const data = await window.clawbox?.getAllModelConfigs();
+        if (data) {
+          setAllConfigs(data);
+          if (data.activeId && data.providers[data.activeId]) {
+            const cfg = data.providers[data.activeId];
+            setActiveId(cfg.id);
+            setApiKey(cfg.apiKey);
+            if (cfg.id === "custom") {
+              setCustomBaseUrl(cfg.baseUrl);
+              setCustomModel(cfg.model);
+            } else {
+              setSelectedModel(cfg.model);
+            }
           }
         }
       } catch {
         // ok
+      } finally {
+        initialLoadRef.current = true;
       }
     })();
   }, []);
+
+  // When user clicks a different provider in the sidebar
+  const handleSelectProvider = (id: string) => {
+    if (id === activeId) return;
+    setActiveId(id);
+    setTestResult(null);
+    setSaved(false);
+
+    const savedCfg = allConfigs.providers[id];
+    if (savedCfg?.apiKey) {
+      setApiKey(savedCfg.apiKey);
+      if (id === "custom") {
+        setCustomBaseUrl(savedCfg.baseUrl);
+        setCustomModel(savedCfg.model);
+      } else {
+        setSelectedModel(savedCfg.model || PROVIDERS.find((p) => p.id === id)?.models[0] || "");
+      }
+    } else {
+      setApiKey("");
+      const provider = PROVIDERS.find((p) => p.id === id)!;
+      setSelectedModel(provider.models[0] || "");
+      if (id === "custom") {
+        setCustomBaseUrl("");
+        setCustomModel("");
+      }
+    }
+  };
 
   const getProvider = (): ModelProvider => ({
     id: active.id,
@@ -248,9 +273,16 @@ export default function Model() {
 
   const handleSave = async () => {
     try {
-      await window.clawbox?.saveModelConfig(getProvider());
+      const provider = getProvider();
+      await window.clawbox?.saveModelConfig(provider);
+      setAllConfigs((prev) => ({
+        activeId: provider.id,
+        providers: { ...prev.providers, [provider.id]: provider },
+      }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      // Notify other pages (Dashboard) to refresh
+      window.dispatchEvent(new CustomEvent("clawbox-config-changed"));
     } catch {
       // handle
     }
@@ -266,41 +298,49 @@ export default function Model() {
         <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
           模型供应商
         </div>
-        {PROVIDERS.map((p) => (
-          <motion.button
-            key={p.id}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setActiveId(p.id)}
-            className={`w-full text-left rounded-xl p-3 relative ${
-              activeId === p.id ? "" : "hover:bg-neutral-50"
-            }`}
-          >
-            {activeId === p.id && (
-              <motion.div
-                layoutId="model-provider-active"
-                className="absolute inset-0 bg-neutral-100 rounded-xl"
-                transition={{ type: "spring", stiffness: 500, damping: 35 }}
-              />
-            )}
-            <div className="relative z-[1] flex items-center gap-2.5">
-              {p.icon ? (
-                <img src={p.icon} alt={p.name} className="w-5 h-5 flex-shrink-0 rounded" />
-              ) : (
-                <div className="w-5 h-5 flex-shrink-0 rounded bg-neutral-200 flex items-center justify-center text-[9px] text-neutral-400 font-bold">?</div>
+        {PROVIDERS.map((p) => {
+          const isConfigured = !!allConfigs.providers[p.id]?.apiKey;
+          const isActive = allConfigs.activeId === p.id;
+          return (
+            <motion.button
+              key={p.id}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => handleSelectProvider(p.id)}
+              className={`w-full text-left rounded-xl p-3 relative ${activeId === p.id ? "" : "hover:bg-neutral-50"
+                }`}
+            >
+              {activeId === p.id && (
+                <motion.div
+                  layoutId="model-provider-active"
+                  className="absolute inset-0 bg-neutral-100 rounded-xl"
+                  transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                />
               )}
-              <span className={`text-[11px] font-medium transition-colors duration-200 flex-1 min-w-0 truncate ${
-                activeId === p.id ? "text-neutral-700" : "text-neutral-500"
-              }`}>
-                {p.name}
-              </span>
-              {p.tag && (
-                <span className="text-[8px] font-medium text-neutral-400 bg-neutral-200 px-1.5 py-0.5 rounded flex-shrink-0">
-                  {p.tag}
+              <div className="relative z-[1] flex items-center gap-2.5">
+                {p.icon ? (
+                  <img src={p.icon} alt={p.name} className="w-5 h-5 flex-shrink-0 rounded" />
+                ) : (
+                  <div className="w-5 h-5 flex-shrink-0 rounded bg-neutral-200 flex items-center justify-center text-[9px] text-neutral-400 font-bold">?</div>
+                )}
+                <span className={`text-[11px] font-medium transition-colors duration-200 flex-1 min-w-0 truncate ${activeId === p.id ? "text-neutral-700" : "text-neutral-500"
+                  }`}>
+                  {p.name}
                 </span>
-              )}
-            </div>
-          </motion.button>
-        ))}
+                {isActive ? (
+                  <span className="text-[8px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded flex-shrink-0">
+                    使用中
+                  </span>
+                ) : isConfigured ? (
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                ) : p.tag ? (
+                  <span className="text-[8px] font-medium text-neutral-400 bg-neutral-200 px-1.5 py-0.5 rounded flex-shrink-0">
+                    {p.tag}
+                  </span>
+                ) : null}
+              </div>
+            </motion.button>
+          );
+        })}
       </div>
 
       {/* Right — config form */}
@@ -318,7 +358,7 @@ export default function Model() {
               className="inline-flex items-center gap-1 text-[10px] font-medium text-[#2563EB] bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors duration-200"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
-                <path d="M5 3H3.5C2.67 3 2 3.67 2 4.5v4C2 9.33 2.67 10 3.5 10h4c.83 0 1.5-.67 1.5-1.5V7M7 2h3v3M5.5 6.5L10 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M5 3H3.5C2.67 3 2 3.67 2 4.5v4C2 9.33 2.67 10 3.5 10h4c.83 0 1.5-.67 1.5-1.5V7M7 2h3v3M5.5 6.5L10 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               {active.portalLabel}
             </motion.button>
@@ -381,11 +421,10 @@ export default function Model() {
                     key={m}
                     whileTap={{ scale: 0.95 }}
                     onClick={() => setSelectedModel(m)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-medium whitespace-nowrap transition-colors duration-200 ${
-                      selectedModel === m
+                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-medium whitespace-nowrap transition-colors duration-200 ${selectedModel === m
                         ? "bg-neutral-800 text-white"
                         : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
-                    }`}
+                      }`}
                   >
                     {m}
                   </motion.button>
@@ -475,11 +514,10 @@ export default function Model() {
             whileTap={{ scale: 0.97 }}
             onClick={handleTest}
             disabled={!isValid || testing}
-            className={`text-[10px] font-medium px-4 py-2 rounded-lg ${
-              isValid && !testing
+            className={`text-[10px] font-medium px-4 py-2 rounded-lg ${isValid && !testing
                 ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
                 : "bg-neutral-100 text-neutral-300"
-            }`}
+              }`}
           >
             {testing ? "测试中..." : "连通性测试"}
           </motion.button>
@@ -487,13 +525,12 @@ export default function Model() {
             whileTap={{ scale: 0.97 }}
             onClick={handleSave}
             disabled={!isValid}
-            className={`text-[10px] font-medium px-4 py-2 rounded-lg ${
-              isValid
+            className={`text-[10px] font-medium px-4 py-2 rounded-lg ${isValid
                 ? "bg-neutral-800 text-white"
                 : "bg-neutral-200 text-neutral-400"
-            }`}
+              }`}
           >
-            保存配置
+            保存并启用
           </motion.button>
           {testResult && (
             <span className={`text-[10px] font-medium ${testResult.success ? "text-emerald-600" : "text-red-400"}`}>

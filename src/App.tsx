@@ -3,16 +3,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import Sidebar from "./components/Sidebar";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
+import Assistants from "./pages/Assistants";
+import Channels from "./pages/Channels";
 import Model from "./pages/Model";
-import Feishu from "./pages/Feishu";
 import Security from "./pages/Security";
 import Logs from "./pages/Logs";
 import Settings from "./pages/Settings";
 
 const pages = {
   dashboard: Dashboard,
+  assistants: Assistants,
+  channels: Channels,
   model: Model,
-  feishu: Feishu,
   security: Security,
   logs: Logs,
   settings: Settings,
@@ -51,6 +53,16 @@ export default function App() {
     return () => window.removeEventListener("clawbox-reset-onboarding", handler);
   }, []);
 
+  // Listen for page navigation events from child pages
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const target = (e as CustomEvent<PageKey>).detail;
+      if (target in pages) setActivePage(target);
+    };
+    window.addEventListener("clawbox-navigate", handler);
+    return () => window.removeEventListener("clawbox-navigate", handler);
+  }, []);
+
   // Loading state
   if (showOnboarding === null) {
     return (
@@ -80,8 +92,8 @@ export default function App() {
             <motion.div
               key={activePage}
               initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0, pointerEvents: "auto" as const }}
+              exit={{ opacity: 0, y: 8, pointerEvents: "none" as const }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="h-full overflow-y-auto p-6"
             >

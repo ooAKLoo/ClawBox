@@ -3,8 +3,9 @@ import type { PageKey } from "../App";
 
 const navItems: { key: PageKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "首页", icon: "⬡" },
+  { key: "assistants", label: "助手", icon: "★" },
+  { key: "channels", label: "通道", icon: "⊕" },
   { key: "model", label: "模型", icon: "◇" },
-  { key: "feishu", label: "飞书", icon: "◈" },
   { key: "security", label: "安全", icon: "◉" },
   { key: "logs", label: "日志", icon: "≡" },
   { key: "settings", label: "设置", icon: "⚙" },

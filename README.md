@@ -2,7 +2,7 @@
 
 # ClawBox
 
-**OpenClaw 飞书安全桌面客户端**
+**OpenClaw 桌面客户端**
 
 [![GitHub stars](https://img.shields.io/github/stars/ooAKLoo/ClawBox?style=social)](https://github.com/ooAKLoo/ClawBox/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/ooAKLoo/ClawBox?style=social)](https://github.com/ooAKLoo/ClawBox/network/members)
@@ -16,15 +16,15 @@
 
 ## 简介
 
-ClawBox 是 OpenClaw 的桌面 GUI 客户端，为飞书场景下的 AI Agent 提供安全、可控的运行环境。通过可视化面板管理模型配置、飞书连接、安全策略和运行日志，开箱即用。
+ClawBox 是 OpenClaw 的桌面 GUI 客户端，为 AI 助手提供安全、可控的运行环境。通过可视化面板管理助手场景、模型配置、安全策略和运行日志，开箱即用。
 
 ## 功能
 
-- **Dashboard** — 一站式总览：守护进程状态、系统诊断、快速操作
+- **控制台** — 一站式总览：守护进程状态、助手运行情况、系统诊断
+- **助手** — 从场景模板一键创建助手，或用自然语言描述需求自动编排
 - **模型管理** — 配置 AI 模型 Provider（API Key / Base URL / Model），支持连接测试
-- **飞书集成** — 飞书自建应用接入（App ID / App Secret），一键测试连接与消息发送
-- **安全策略** — 工具权限档位、Shell / 磁盘 / 公网暴露拦截、凭证加密、群聊白名单
-- **运行日志** — 实时查看 Agent 调用记录，支持筛选、导出、清理
+- **安全策略** — 工具权限档位、Shell / 磁盘 / 公网暴露拦截、凭证加密
+- **运行日志** — 实时查看助手调用记录，支持筛选、导出、清理
 - **系统设置** — 开机自启、自动更新、语言切换、数据目录管理
 
 ## 技术栈
@@ -67,13 +67,13 @@ ClawBox/
 │   ├── components/
 │   │   └── Sidebar.tsx   # 侧边栏导航
 │   └── pages/
-│       ├── Dashboard.tsx # 总览面板
-│       ├── Model.tsx     # 模型配置
-│       ├── Feishu.tsx    # 飞书接入
-│       ├── Security.tsx  # 安全策略
-│       ├── Logs.tsx      # 运行日志
-│       ├── Settings.tsx  # 系统设置
-│       └── Onboarding.tsx# 引导流程
+│       ├── Dashboard.tsx   # 控制台
+│       ├── Assistants.tsx # 助手 & 场景市场
+│       ├── Model.tsx      # 模型配置
+│       ├── Security.tsx   # 安全策略
+│       ├── Logs.tsx       # 运行日志
+│       ├── Settings.tsx   # 系统设置
+│       └── Onboarding.tsx # 引导流程
 ├── package.json
 ├── vite.config.ts
 ├── tailwind.config.js
