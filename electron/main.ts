@@ -25,6 +25,8 @@ function pushLog(level: "info" | "warn" | "error", category: "system" | "assista
 
 const isDev = !app.isPackaged;
 const configDir = path.join(app.getPath("userData"), "clawbox-config");
+const openclawConfigDir = path.join(app.getPath("home"), ".openclaw");
+const openclawConfigPath = path.join(openclawConfigDir, "openclaw.json");
 
 // Ensure config directory exists
 if (!fs.existsSync(configDir)) {
@@ -297,7 +299,7 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
 function spawnDaemon(): Promise<{ success: boolean; message: string }> {
   return new Promise(async (resolve, reject) => {
     const { cmd, args, env } = getOpenClawCommand();
-    const fullArgs = [...args, "gateway", "run", "--port", String(DAEMON_PORT), "--allow-unconfigured", "--auth", "none"];
+    const fullArgs = [...args, "gateway", "run", "--port", String(DAEMON_PORT), "--allow-unconfigured", "--auth", "none", "--verbose"];
     console.log("[ClawBox] Spawning gateway:", cmd, fullArgs.join(" "));
     daemonProcess = spawn(cmd, fullArgs, { shell: true, env });
 
@@ -422,11 +424,69 @@ function readModelData(): { activeId: string | null; providers: Record<string, u
   return { activeId: raw.activeId ?? null, providers: raw.providers ?? {} };
 }
 
+/** Map ClawBox provider IDs to OpenClaw provider IDs */
+function toOpenClawProviderId(clawboxId: string): string {
+  const map: Record<string, string> = {
+    qwen: "dashscope",
+    kimi: "moonshot",
+  };
+  return map[clawboxId] ?? clawboxId;
+}
+
+/** Sync active model config to OpenClaw's openclaw.json so the agent runtime can use it */
+function syncModelToOpenClaw(provider: { id: string; name: string; baseUrl: string; apiKey: string; model: string }) {
+  try {
+    let cfg: Record<string, unknown> = {};
+    if (fs.existsSync(openclawConfigPath)) {
+      cfg = JSON.parse(fs.readFileSync(openclawConfigPath, "utf-8"));
+    }
+
+    const ocProviderId = toOpenClawProviderId(provider.id);
+
+    // Set models.providers.<id>
+    if (!cfg.models || typeof cfg.models !== "object") cfg.models = {};
+    const models = cfg.models as Record<string, unknown>;
+    if (!models.providers || typeof models.providers !== "object") models.providers = {};
+    const providers = models.providers as Record<string, unknown>;
+
+    providers[ocProviderId] = {
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      models: [{ id: provider.model, name: `${provider.name} ${provider.model}`, api: "openai-completions" }],
+    };
+
+    // Set agents.defaults.model
+    if (!cfg.agents || typeof cfg.agents !== "object") cfg.agents = {};
+    const agents = cfg.agents as Record<string, unknown>;
+    if (!agents.defaults || typeof agents.defaults !== "object") agents.defaults = {};
+    const defaults = agents.defaults as Record<string, unknown>;
+    defaults.model = `${ocProviderId}/${provider.model}`;
+
+    fs.writeFileSync(openclawConfigPath, JSON.stringify(cfg, null, 2));
+    pushLog("info", "model", `已同步模型配置到 OpenClaw: ${ocProviderId}/${provider.model}`);
+  } catch (err) {
+    pushLog("error", "model", `同步模型配置到 OpenClaw 失败: ${err}`);
+  }
+}
+
 ipcMain.handle("save-model-config", async (_e, provider) => {
   const data = readModelData();
   data.activeId = provider.id;
   data.providers[provider.id] = provider;
   writeJsonFile("model.json", data);
+
+  // Sync to OpenClaw runtime config
+  syncModelToOpenClaw(provider);
+
+  // Auto-restart gateway if running, so new model config takes effect
+  if (daemonProcess) {
+    pushLog("info", "system", "模型配置已变更，正在重启 Gateway...");
+    daemonProcess.kill();
+    daemonProcess = null;
+    await new Promise((r) => setTimeout(r, 500));
+    await spawnDaemon();
+  }
+
   return { success: true };
 });
 
@@ -468,8 +528,51 @@ ipcMain.handle("test-model-connection", async (_e, provider) => {
 
 // --- Feishu config ---
 
+function syncFeishuToOpenClaw(config: { appId: string; appSecret: string; verificationToken?: string; encryptKey?: string }) {
+  try {
+    let cfg: Record<string, unknown> = {};
+    if (fs.existsSync(openclawConfigPath)) {
+      cfg = JSON.parse(fs.readFileSync(openclawConfigPath, "utf-8"));
+    }
+
+    if (!cfg.channels || typeof cfg.channels !== "object") cfg.channels = {};
+    const channels = cfg.channels as Record<string, unknown>;
+
+    if (config.appId && config.appSecret) {
+      const feishuCfg: Record<string, unknown> = {
+        enabled: true,
+        appId: config.appId,
+        appSecret: config.appSecret,
+        dmPolicy: "open",
+      };
+      if (config.verificationToken) feishuCfg.verificationToken = config.verificationToken;
+      if (config.encryptKey) feishuCfg.encryptKey = config.encryptKey;
+      channels.feishu = feishuCfg;
+    } else {
+      // Clear feishu config if credentials are empty
+      delete channels.feishu;
+    }
+
+    fs.writeFileSync(openclawConfigPath, JSON.stringify(cfg, null, 2));
+    pushLog("info", "system", "已同步飞书配置到 OpenClaw");
+  } catch (err) {
+    pushLog("error", "system", `同步飞书配置到 OpenClaw 失败: ${err}`);
+  }
+}
+
 ipcMain.handle("save-feishu-config", async (_e, config) => {
   writeJsonFile("feishu.json", config);
+  syncFeishuToOpenClaw(config);
+
+  // Auto-restart gateway if running, so feishu channel connects
+  if (daemonProcess) {
+    pushLog("info", "system", "飞书配置已变更，正在重启 Gateway...");
+    daemonProcess.kill();
+    daemonProcess = null;
+    await new Promise((r) => setTimeout(r, 500));
+    await spawnDaemon();
+  }
+
   return { success: true };
 });
 
@@ -499,6 +602,175 @@ ipcMain.handle("test-feishu-connection", async () => {
   } catch (err) {
     return { success: false, error: String(err) };
   }
+});
+
+// Preflight check: validate credentials + detect missing permissions/config
+async function feishuPreflight(config: { appId: string; appSecret: string }) {
+  const checks: { key: string; label: string; passed: boolean; detail: string; fixUrl?: string }[] = [];
+  const appUrl = `https://open.feishu.cn/app/${config.appId}`;
+
+  // 1. Validate credentials → get tenant_access_token
+  let token = "";
+  try {
+    const res = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: config.appId, app_secret: config.appSecret }),
+    });
+    const data = await res.json() as { code: number; tenant_access_token?: string; msg?: string };
+    if (data.code === 0 && data.tenant_access_token) {
+      token = data.tenant_access_token;
+      checks.push({ key: "credentials", label: "应用凭证", passed: true, detail: "App ID / Secret 验证通过" });
+    } else {
+      checks.push({ key: "credentials", label: "应用凭证", passed: false, detail: data.msg || "认证失败，请检查 App ID 和 Secret", fixUrl: `${appUrl}/baseinfo` });
+      return checks; // Can't continue without token
+    }
+  } catch (err) {
+    checks.push({ key: "credentials", label: "应用凭证", passed: false, detail: `网络错误: ${String(err)}` });
+    return checks;
+  }
+
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+
+  // 2. Check bot capability — try getting bot info
+  try {
+    const res = await fetch("https://open.feishu.cn/open-apis/bot/v3/info", { headers });
+    const data = await res.json() as { code: number; msg?: string; bot?: { app_name?: string } };
+    if (data.code === 0) {
+      checks.push({ key: "bot", label: "机器人能力", passed: true, detail: data.bot?.app_name ? `机器人: ${data.bot.app_name}` : "机器人已启用" });
+    } else {
+      checks.push({ key: "bot", label: "机器人能力", passed: false, detail: "未启用机器人能力，请在「添加应用能力」中添加「机器人」", fixUrl: `${appUrl}/bot` });
+    }
+  } catch {
+    checks.push({ key: "bot", label: "机器人能力", passed: false, detail: "检测失败" });
+  }
+
+  // 3. Check im:message:send_as_bot — call the send message API with invalid receive_id
+  try {
+    const res = await fetch("https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ receive_id: "___preflight_test___", msg_type: "text", content: "{}" }),
+    });
+    const data = await res.json() as { code: number; msg?: string };
+    // 99991672 = permission denied; other codes (e.g. 230002 invalid param) mean permission is granted
+    if (data.code === 99991672) {
+      checks.push({
+        key: "send_permission",
+        label: "发消息权限",
+        passed: false,
+        detail: "缺少 im:message:send_as_bot 权限",
+        fixUrl: `https://open.feishu.cn/app/${config.appId}/auth?q=im:message:send_as_bot&op_from=openapi&token_type=tenant`,
+      });
+    } else {
+      checks.push({ key: "send_permission", label: "发消息权限", passed: true, detail: "im:message:send_as_bot 已开通" });
+    }
+  } catch {
+    checks.push({ key: "send_permission", label: "发消息权限", passed: false, detail: "检测失败" });
+  }
+
+  // 4. Check contact:contact.base:readonly — try getting a user
+  try {
+    const res = await fetch("https://open.feishu.cn/open-apis/contact/v3/users?page_size=1", { headers });
+    const data = await res.json() as { code: number; msg?: string };
+    if (data.code === 99991672) {
+      checks.push({
+        key: "contact_permission",
+        label: "通讯录权限",
+        passed: false,
+        detail: "缺少 contact:contact.base:readonly 权限",
+        fixUrl: `https://open.feishu.cn/app/${config.appId}/auth?q=contact:contact.base:readonly&op_from=openapi&token_type=tenant`,
+      });
+    } else {
+      checks.push({ key: "contact_permission", label: "通讯录权限", passed: true, detail: "contact:contact.base:readonly 已开通" });
+    }
+  } catch {
+    checks.push({ key: "contact_permission", label: "通讯录权限", passed: false, detail: "检测失败" });
+  }
+
+  // 5. im:message.p2p_msg:readonly is an event subscription scope, cannot be verified via REST API.
+  // Always pass and remind the user to confirm manually if messages aren't received.
+  checks.push({
+    key: "receive_permission",
+    label: "接收消息权限",
+    passed: true,
+    detail: "请确认已在飞书开放平台开通 im:message.p2p_msg:readonly 权限并发布版本",
+  });
+
+  return checks;
+}
+
+ipcMain.handle("feishu-preflight", async (_e, config: { appId: string; appSecret: string }) => {
+  return feishuPreflight(config);
+});
+
+// Activate feishu channel: save → sync → start/restart gateway → verify real connection
+ipcMain.handle("activate-feishu-channel", async (_e, config: { appId: string; appSecret: string; verificationToken?: string; encryptKey?: string }) => {
+  // 1. Check gateway is available (runtime exists)
+  const runtime = detectBundledRuntime();
+  if (!runtime.available) {
+    return { success: false, stage: "check", error: "OpenClaw 运行时缺失，请先完成环境安装" };
+  }
+
+  // 2. Run preflight checks
+  const checks = await feishuPreflight(config);
+  const failed = checks.filter((c) => !c.passed);
+  if (failed.length > 0) {
+    return { success: false, stage: "preflight", error: `预检未通过: ${failed.map((c) => c.label).join("、")}`, checks };
+  }
+
+  // 3. Save config locally
+  writeJsonFile("feishu.json", config);
+  pushLog("info", "system", "飞书配置已保存");
+
+  // 4. Sync to OpenClaw
+  syncFeishuToOpenClaw(config);
+
+  // 5. Clear dedup cache to avoid stale entries blocking messages
+  const dedupPath = path.join(openclawConfigDir, "feishu", "dedup", "default.json");
+  if (fs.existsSync(dedupPath)) {
+    try { fs.unlinkSync(dedupPath); } catch { /* ok */ }
+  }
+
+  // 6. Start or restart gateway
+  const wasRunning = daemonProcess !== null;
+  if (daemonProcess) {
+    daemonProcess.kill();
+    daemonProcess = null;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  pushLog("info", "system", wasRunning ? "正在重启 Gateway 以应用飞书配置..." : "正在启动 Gateway...");
+
+  // Record log buffer length before starting, so we only scan new logs
+  const logStartIndex = logBuffer.length;
+
+  const spawnResult = await spawnDaemon();
+  if (!spawnResult.success) {
+    return { success: false, stage: "gateway", error: `Gateway 启动失败: ${spawnResult.message}` };
+  }
+
+  // 7. Wait for feishu WebSocket connection (scan new gateway logs)
+  const WS_TIMEOUT = 15000;
+  const WS_POLL = 500;
+  const deadline = Date.now() + WS_TIMEOUT;
+
+  while (Date.now() < deadline) {
+    // Scan logs added since gateway start for feishu connection success
+    for (let i = logStartIndex; i < logBuffer.length; i++) {
+      const msg = logBuffer[i].msg;
+      if (/WebSocket client started/i.test(msg) || /feishu.*websocket/i.test(msg.toLowerCase())) {
+        pushLog("info", "system", "飞书长连接已建立");
+        return { success: true, stage: "connected", checks };
+      }
+      // Check for feishu-specific errors
+      if (/feishu/i.test(msg) && logBuffer[i].level === "error") {
+        return { success: false, stage: "feishu", error: msg, checks };
+      }
+    }
+    await new Promise((r) => setTimeout(r, WS_POLL));
+  }
+
+  return { success: false, stage: "timeout", error: "飞书长连接未在 15 秒内建立，请检查事件订阅是否已配置长连接模式，以及应用是否已发布", checks };
 });
 
 // --- Security config ---

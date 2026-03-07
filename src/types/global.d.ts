@@ -6,6 +6,14 @@ export interface ModelProvider {
   model: string;
 }
 
+export interface FeishuPreflightCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+  fixUrl?: string;
+}
+
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
@@ -70,6 +78,8 @@ interface ClawBoxAPI {
   saveFeishuConfig: (config: FeishuConfig) => Promise<{ success: boolean }>;
   getFeishuConfig: () => Promise<FeishuConfig | null>;
   testFeishuConnection: () => Promise<{ success: boolean; botName?: string; error?: string }>;
+  activateFeishuChannel: (config: FeishuConfig) => Promise<{ success: boolean; stage: string; error?: string; checks?: FeishuPreflightCheck[] }>;
+  feishuPreflight: (config: { appId: string; appSecret: string }) => Promise<FeishuPreflightCheck[]>;
   saveSecurityConfig: (config: SecurityConfig) => Promise<{ success: boolean }>;
   getSecurityConfig: () => Promise<SecurityConfig>;
   getLogs: () => Promise<LogEntry[]>;

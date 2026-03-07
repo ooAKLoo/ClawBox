@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld("clawbox", {
   saveFeishuConfig: (config: unknown) => ipcRenderer.invoke("save-feishu-config", config),
   getFeishuConfig: () => ipcRenderer.invoke("get-feishu-config"),
   testFeishuConnection: () => ipcRenderer.invoke("test-feishu-connection"),
+  activateFeishuChannel: (config: unknown) => ipcRenderer.invoke("activate-feishu-channel", config),
+  feishuPreflight: (config: unknown) => ipcRenderer.invoke("feishu-preflight", config),
 
   // Security
   saveSecurityConfig: (config: unknown) => ipcRenderer.invoke("save-security-config", config),
