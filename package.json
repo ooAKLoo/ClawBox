@@ -58,7 +58,15 @@
     "mac": {
       "target": [
         { "target": "dmg", "arch": ["arm64", "x64"] }
-      ]
+      ],
+      "identity": "Developer ID Application: Dongju Yang (9YFT3H8S93)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "9YFT3H8S93"
+      }
     }
   }
 }
