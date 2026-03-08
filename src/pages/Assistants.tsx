@@ -7,8 +7,9 @@ import type { AssistantConfig } from "../types/global";
 interface SceneParam {
   key: string;
   label: string;
-  type: "text" | "select" | "time" | "tags";
+  type: "text" | "select" | "time" | "tags" | "textarea";
   default?: string;
+  placeholder?: string;
   options?: { label: string; value: string }[];
 }
 
@@ -21,34 +22,45 @@ interface SceneTemplate {
   params: SceneParam[];
   category: string;
   systemPrompt: string;
+  requires?: "channel";
 }
 
 // --- Built-in scene templates ---
 
 const SCENES: SceneTemplate[] = [
   {
-    id: "daily-news",
-    name: "每日新闻摘要",
-    description: "定时搜集指定领域新闻，整理成中文简报推送",
-    icon: "news",
-    tags: ["定时", "搜索", "消息"],
-    category: "信息",
+    id: "ai-customer-service",
+    name: "AI 客服",
+    description: "接入飞书后自动回答客户咨询，记住每位客户的沟通历史",
+    icon: "service",
+    tags: ["通道", "消息", "记忆"],
+    category: "客服",
+    requires: "channel",
     params: [
-      { key: "time", label: "推送时间", type: "time", default: "08:00" },
       {
-        key: "topics",
-        label: "关注领域",
-        type: "tags",
-        default: "AI,科技,商业",
+        key: "productInfo",
+        label: "产品/业务资料",
+        type: "textarea",
+        placeholder: "粘贴你的产品介绍、常见问题、报价信息等，AI 会基于这些内容回答客户",
+      },
+      {
+        key: "fallback",
+        label: "超出能力时的行为",
+        type: "select",
+        default: "handoff",
+        options: [
+          { label: "转人工提示", value: "handoff" },
+          { label: "礼貌拒绝", value: "decline" },
+        ],
       },
     ],
-    systemPrompt: `你是一个新闻摘要助手。你的任务是：
-1. 搜索指定领域的最新新闻
-2. 筛选出最重要的 5-8 条新闻
-3. 用简洁的中文摘要呈现，每条包含标题、一句话摘要和来源
-4. 在开头附上日期和领域标签
+    systemPrompt: `你是一个专业的 AI 客服助手。你的职责是：
+1. 根据产品资料准确回答客户的咨询
+2. 记住每位客户的历史对话，下次沟通时主动关联上下文
+3. 回答要简洁、专业、友好
+4. 遇到不确定或超出资料范围的问题，不要编造答案
 
-输出格式要求：简洁、结构化、易于快速浏览。`,
+保持耐心和礼貌，像一个经验丰富的客服人员一样沟通。`,
   },
   {
     id: "meeting-notes",
@@ -134,22 +146,6 @@ const SCENES: SceneTemplate[] = [
 输出要简洁、专业，适合发送给团队或上级。`,
   },
   {
-    id: "reminder",
-    name: "智能提醒",
-    description: "基于自然语言设置提醒，到时间自动推送",
-    icon: "reminder",
-    tags: ["定时", "消息"],
-    category: "生活",
-    params: [],
-    systemPrompt: `你是一个智能提醒助手。当用户发送消息时：
-1. 理解用户想要被提醒的事项
-2. 提取时间信息（如果有）
-3. 确认提醒内容和时间
-4. 到时间后发送友好的提醒消息
-
-保持简洁友好的语气。`,
-  },
-  {
     id: "code-review",
     name: "代码审查助手",
     description: "收到代码片段后给出审查意见和改进建议",
@@ -181,15 +177,14 @@ const SCENES: SceneTemplate[] = [
 ];
 
 const SCENE_ICONS: Record<string, string> = {
-  news: "\u25C8",
+  service: "\u2637",
   notes: "\u2261",
   translate: "\u25C7",
   report: "\u25A3",
-  reminder: "\u25CB",
   code: "\u27E8\u27E9",
 };
 
-const CATEGORIES = ["全部", "效率", "信息", "生活", "开发"];
+const CATEGORIES = ["全部", "客服", "效率", "开发"];
 
 /** Build the final system prompt with user-configured params */
 function buildSystemPrompt(scene: SceneTemplate, params: Record<string, string>): string {
@@ -200,7 +195,16 @@ function buildSystemPrompt(scene: SceneTemplate, params: Record<string, string>)
   for (const p of scene.params) {
     const val = params[p.key];
     if (!val) continue;
-    if (p.key === "topics") additions.push(`关注领域: ${val}`);
+    if (p.key === "productInfo" && val.trim()) {
+      additions.push(`## 产品资料\n${val}`);
+    }
+    if (p.key === "fallback") {
+      if (val === "handoff") {
+        additions.push(`超出能力范围时: 回复「这个问题我需要确认一下，已为您转接人工客服，请稍等」`);
+      } else {
+        additions.push(`超出能力范围时: 礼貌说明暂时无法回答，建议客户通过其他方式联系`);
+      }
+    }
     if (p.key === "targetLang") {
       const label = p.options?.find((o) => o.value === val)?.label ?? val;
       additions.push(`目标语言: ${label}`);
@@ -242,13 +246,19 @@ export default function Assistants() {
   const [createMode, setCreateMode] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [channelReady, setChannelReady] = useState<boolean | null>(null);
+  const [showChannelHint, setShowChannelHint] = useState(false);
 
-  // Load assistants from backend
+  // Load assistants + check channel status
   useEffect(() => {
     (async () => {
       try {
-        const list = await window.clawbox?.listAssistants();
+        const [list, feishuCfg] = await Promise.all([
+          window.clawbox?.listAssistants(),
+          window.clawbox?.getFeishuConfig(),
+        ]);
         if (list) setAssistants(list);
+        setChannelReady(!!(feishuCfg?.appId && feishuCfg?.appSecret));
       } catch {
         // ignore
       } finally {
@@ -263,6 +273,10 @@ export default function Assistants() {
       : SCENES.filter((s) => s.category === activeCategory);
 
   const handleUseScene = (scene: SceneTemplate) => {
+    if (scene.requires === "channel" && !channelReady) {
+      setShowChannelHint(true);
+      return;
+    }
     const defaults: Record<string, string> = {};
     scene.params.forEach((p) => {
       if (p.default) defaults[p.key] = p.default;
@@ -494,7 +508,12 @@ export default function Assistants() {
                 {scene.description}
               </p>
               <div className="flex items-center justify-between">
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
+                  {scene.requires === "channel" && (
+                    <span className={`text-[8px] font-medium px-1.5 py-0.5 rounded ${channelReady ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50"}`}>
+                      {channelReady ? "通道已连接" : "需配置通道"}
+                    </span>
+                  )}
                   {scene.tags.map((tag) => (
                     <span
                       key={tag}
@@ -577,6 +596,19 @@ export default function Assistants() {
                             </motion.button>
                           ))}
                         </div>
+                      ) : param.type === "textarea" ? (
+                        <textarea
+                          value={setupParams[param.key] || ""}
+                          onChange={(e) =>
+                            setSetupParams((p) => ({
+                              ...p,
+                              [param.key]: e.target.value,
+                            }))
+                          }
+                          placeholder={param.placeholder || param.default || ""}
+                          rows={4}
+                          className="w-full bg-neutral-50 rounded-lg px-3 py-2 text-[11px] text-neutral-700 font-medium outline-none placeholder:text-neutral-300 resize-none"
+                        />
                       ) : (
                         <input
                           value={setupParams[param.key] || ""}
@@ -586,7 +618,7 @@ export default function Assistants() {
                               [param.key]: e.target.value,
                             }))
                           }
-                          placeholder={param.default || ""}
+                          placeholder={param.placeholder || param.default || ""}
                           className="w-full bg-neutral-50 rounded-lg px-3 py-2 text-[11px] text-neutral-700 font-medium outline-none placeholder:text-neutral-300"
                         />
                       )}
@@ -634,6 +666,58 @@ export default function Assistants() {
         )}
       </AnimatePresence>
 
+      {/* Channel prerequisite hint dialog */}
+      <AnimatePresence>
+        {showChannelHint && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 bg-black/20 flex items-center justify-center z-50"
+            onClick={() => setShowChannelHint(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="bg-white rounded-3xl w-[420px] p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-[14px] font-medium text-neutral-700 mb-1">
+                需要先配置通道
+              </div>
+              <p className="text-[10px] text-neutral-400 mb-4 leading-4">
+                该助手需要接入飞书等消息通道才能工作。AI 客服会通过通道接收客户消息并自动回复。
+              </p>
+              <div className="bg-amber-50 rounded-2xl p-4 mb-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-500 text-[12px] mt-0.5">!</span>
+                  <div>
+                    <p className="text-[10px] text-amber-700 font-medium mb-1">请先完成以下步骤：</p>
+                    <ol className="text-[10px] text-amber-600 space-y-1 list-decimal list-inside">
+                      <li>前往「通道」页面配置飞书应用凭证</li>
+                      <li>完成飞书通道激活</li>
+                      <li>返回此页面创建 AI 客服助手</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setShowChannelHint(false)}
+                  className="text-[10px] font-medium px-4 py-2 rounded-lg bg-neutral-800 text-white"
+                >
+                  知道了
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Create from prompt dialog */}
       <AnimatePresence>
         {createMode && (
@@ -668,7 +752,7 @@ export default function Assistants() {
                   <textarea
                     value={createPrompt}
                     onChange={(e) => setCreatePrompt(e.target.value)}
-                    placeholder="例如：每天帮我搜集 AI 领域的最新动态，整理成中文简报"
+                    placeholder="例如：收到英文邮件后自动翻译成中文并总结要点"
                     rows={3}
                     className="w-full bg-neutral-50 rounded-lg px-3 py-2 text-[11px] text-neutral-700 font-medium outline-none placeholder:text-neutral-300 resize-none"
                   />

@@ -161,33 +161,31 @@ export default function Logs() {
       </div>
 
       {/* Log output */}
-      <div className="bg-neutral-100 rounded-2xl p-4">
-        <div
-          className="bg-neutral-50 rounded-lg p-3 min-h-[320px] max-h-[480px] overflow-y-auto font-mono"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
-          }}
-        >
-          {filtered.length === 0 ? (
-            <div className="text-[10px] text-neutral-300 text-center py-8">暂无日志</div>
-          ) : (
-            filtered.map((log, i) => (
-              <div key={i} className="flex gap-3 text-[10px] leading-5 hover:bg-neutral-100 rounded px-1">
-                <span className="text-neutral-300 flex-shrink-0 w-14">{log.time}</span>
-                <span className={`flex-shrink-0 uppercase w-10 ${log.level === "error" ? "text-red-400"
-                    : log.level === "warn" ? "text-amber-400"
-                      : "text-neutral-400"
-                  }`}>
-                  {log.level}
-                </span>
-                <span className="text-neutral-300 flex-shrink-0 w-14">{log.category}</span>
-                <span className="text-neutral-500">{log.msg}</span>
-              </div>
-            ))
-          )}
-          <div ref={logEndRef} />
-        </div>
+      <div
+        className="bg-neutral-100 rounded-2xl p-4 min-h-[320px] max-h-[480px] overflow-y-auto font-mono"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+        }}
+      >
+        {filtered.length === 0 ? (
+          <div className="text-[10px] text-neutral-300 text-center py-8">暂无日志</div>
+        ) : (
+          filtered.map((log, i) => (
+            <div key={i} className="flex gap-3 text-[10px] leading-5 hover:bg-neutral-200/60 rounded px-1">
+              <span className="text-neutral-300 flex-shrink-0 w-14">{log.time}</span>
+              <span className={`flex-shrink-0 uppercase w-10 ${log.level === "error" ? "text-red-400"
+                  : log.level === "warn" ? "text-amber-400"
+                    : "text-neutral-400"
+                }`}>
+                {log.level}
+              </span>
+              <span className="text-neutral-300 flex-shrink-0 w-14">{log.category}</span>
+              <span className="text-neutral-500">{log.msg}</span>
+            </div>
+          ))
+        )}
+        <div ref={logEndRef} />
       </div>
 
       {/* 导出成功 Dialog */}

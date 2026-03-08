@@ -57,6 +57,10 @@ contextBridge.exposeInMainWorld("clawbox", {
   getOnboardingComplete: () => ipcRenderer.invoke("get-onboarding-complete"),
   setOnboardingComplete: (value: boolean) => ipcRenderer.invoke("set-onboarding-complete", value),
 
+  // Orbit (Update / Feedback)
+  checkUpdate: () => ipcRenderer.invoke("check-update"),
+  sendFeedback: (data: { content: string; contact?: string }) => ipcRenderer.invoke("send-feedback", data),
+
   // External links
   openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
 
@@ -65,4 +69,13 @@ contextBridge.exposeInMainWorld("clawbox", {
   createAssistant: (config: unknown) => ipcRenderer.invoke("create-assistant", config),
   removeAssistant: (id: string) => ipcRenderer.invoke("remove-assistant", id),
   toggleAssistant: (id: string) => ipcRenderer.invoke("toggle-assistant", id),
+
+  // Security alerts
+  onSecurityAlert: (callback: (alert: { id: string; level: string; title: string; detail: string; action?: string }) => void) => {
+    const handler = (_event: unknown, alert: { id: string; level: string; title: string; detail: string; action?: string }) => callback(alert);
+    ipcRenderer.on("security-alert", handler);
+    return () => { ipcRenderer.removeListener("security-alert", handler); };
+  },
+  dismissSecurityAlert: (alertId: string) => ipcRenderer.invoke("dismiss-security-alert", alertId),
+  scanPrompt: (text: string) => ipcRenderer.invoke("scan-prompt", text),
 });

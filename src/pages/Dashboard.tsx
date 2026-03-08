@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import Dialog from "../components/Dialog";
+import Term from "../components/Glossary";
 
 interface Status {
   daemon: { running: boolean; port: number };
   model: { available: boolean; provider: string | null; model: string | null };
   channels: { feishu: boolean; count: number };
   assistants: { active: number; total: number };
-  security: { safe: boolean; profile: string };
+  security: { safe: boolean };
   version: string;
 }
 
@@ -21,16 +21,12 @@ export default function Dashboard() {
     model: { available: false, provider: null, model: null },
     channels: { feishu: false, count: 0 },
     assistants: { active: 0, total: 0 },
-    security: { safe: true, profile: "messaging" },
+    security: { safe: true },
     version: "0.1.0",
   });
   const [loading, setLoading] = useState(true);
   const [daemonLoading, setDaemonLoading] = useState(false);
   const [recentErrors, setRecentErrors] = useState<string[]>([]);
-
-  // Dialog states
-  const [diagOpen, setDiagOpen] = useState(false);
-  const [diagResult, setDiagResult] = useState<{ name: string; passed: boolean; detail: string }[]>([]);
 
   const refresh = async () => {
     setLoading(true);
@@ -61,8 +57,7 @@ export default function Dashboard() {
         channels: { feishu: feishuOk, count: channelCount },
         assistants: { active: 0, total: 0 },
         security: {
-          safe: securityCfg.toolsProfile === "messaging" && securityCfg.blockPublicExpose && securityCfg.blockShellAccess,
-          profile: securityCfg.toolsProfile,
+          safe: securityCfg.blockPublicExpose && securityCfg.blockShellAccess,
         },
         version,
       });
@@ -159,20 +154,20 @@ export default function Dashboard() {
       {/* Status cards — 2 columns */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <StatusCard
-          label="Gateway"
+          label={<><Term k="Gateway" /></>}
           value={status.daemon.running ? `127.0.0.1:${status.daemon.port}` : "未启动"}
           ok={status.daemon.running}
           detail={status.daemon.running ? "本机监听，安全运行" : "点击右上角启动"}
         />
         <StatusCard
-          label="模型"
+          label={<Term k="模型" />}
           value={status.model.available ? `${status.model.provider}` : "未配置"}
           ok={status.model.available}
           detail={status.model.model || "前往模型页面配置"}
           onClick={() => navigateTo("model")}
         />
         <StatusCard
-          label="通道"
+          label={<Term k="通道" />}
           value={status.channels.count > 0 ? `${status.channels.count} 个可用` : "未配置"}
           ok={status.channels.count > 0}
           detail={status.channels.feishu ? "飞书已连接" : "前往通道页面配置"}
@@ -187,22 +182,31 @@ export default function Dashboard() {
         />
         <StatusCard
           label="安全状态"
-          value={status.security.safe ? "安全模式" : "存在风险项"}
-          ok={status.security.safe}
-          detail={`权限档位：${status.security.profile}`}
+          value={!status.daemon.running ? "防护未启动" : status.security.safe ? "防护运行中" : "存在风险项"}
+          ok={status.daemon.running && status.security.safe}
+          detail={!status.daemon.running ? "启动 Gateway 后安全策略生效" : status.security.safe ? "安全策略持续监测中" : "请检查安全设置"}
+          onClick={() => navigateTo("security")}
+        />
+        <StatusCard
+          label={<Term k="Web 控制台" />}
+          value={status.daemon.running ? `http://127.0.0.1:${status.daemon.port}` : "未启动"}
+          ok={status.daemon.running}
+          detail={status.daemon.running ? "点击打开 OpenClaw 管理页面 →" : "需先启动 Gateway 才能访问"}
+          onClick={status.daemon.running ? async () => {
+            const result = await window.clawbox?.openBrowserControl();
+            if (result && !result.success) {
+              console.error("Open browser control failed:", result.message);
+            }
+          } : undefined}
         />
       </div>
 
-      {/* Recent errors */}
-      <div className="bg-neutral-100 rounded-2xl p-4 mb-4">
-        <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
-          最近错误
-        </div>
-        {recentErrors.length === 0 ? (
-          <div className="bg-white rounded-xl px-3 py-2">
-            <span className="text-[10px] text-neutral-300">暂无错误</span>
+      {/* Recent errors — only show when there are errors */}
+      {recentErrors.length > 0 && (
+        <div className="bg-neutral-100 rounded-2xl p-4 mb-4">
+          <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
+            最近错误
           </div>
-        ) : (
           <div className="space-y-1">
             {recentErrors.map((e, i) => (
               <div key={i} className="bg-white rounded-xl px-3 py-2 flex items-center gap-2">
@@ -211,58 +215,14 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Quick actions */}
-      <div className="bg-neutral-100 rounded-2xl p-4">
-        <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-3">
-          快捷操作
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <ActionBtn
-            label="浏览器控制台"
-            disabled={!status.daemon.running}
-            onClick={async () => {
-              const result = await window.clawbox?.openBrowserControl();
-              if (result && !result.success) {
-                console.error("Open browser control failed:", result.message);
-              }
-            }}
-          />
-          <ActionBtn label="刷新状态" onClick={refresh} />
-          <ActionBtn label="运行诊断" onClick={async () => {
-            const result = await window.clawbox?.runDiagnostics();
-            if (result) {
-              setDiagResult(result.checks);
-              setDiagOpen(true);
-            }
-          }} />
-        </div>
-      </div>
-
-      {/* 诊断结果 Dialog */}
-      <Dialog open={diagOpen} onClose={() => setDiagOpen(false)} title="诊断结果">
-        {diagResult.length === 0 ? (
-          <div className="text-neutral-400">暂无数据</div>
-        ) : (
-          <div className="space-y-1.5">
-            {diagResult.map((c, i) => (
-              <div key={i} className="flex items-center gap-2 bg-neutral-50 rounded-xl px-3 py-2">
-                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.passed ? "bg-emerald-500" : "bg-red-400"}`} />
-                <span className="text-[10px] font-medium text-neutral-700 w-20 flex-shrink-0">{c.name}</span>
-                <span className="text-[10px] text-neutral-400 truncate">{c.detail}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Dialog>
+      )}
 
     </div>
   );
 }
 
-function StatusCard({ label, value, ok, detail, onClick }: { label: string; value: string; ok: boolean; detail: string; onClick?: () => void }) {
+function StatusCard({ label, value, ok, detail, onClick }: { label: React.ReactNode; value: string; ok: boolean; detail: string; onClick?: () => void }) {
   const Wrapper = onClick ? motion.button : "div";
   return (
     <Wrapper

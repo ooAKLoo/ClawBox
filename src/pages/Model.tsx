@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import type { ModelProvider } from "../types/global";
+import Term from "../components/Glossary";
 
 import iconDeepseek from "../assets/icons/deepseek.svg";
 import iconQwen from "../assets/icons/qwen.svg";
@@ -185,7 +186,7 @@ const formatPrice = (price: number) => `¥${price}`;
 export default function Model() {
   const [activeId, setActiveId] = useState("deepseek");
   const [apiKey, setApiKey] = useState("");
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [baseUrlOverride, setBaseUrlOverride] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [testing, setTesting] = useState(false);
@@ -207,8 +208,8 @@ export default function Model() {
             const cfg = data.providers[data.activeId];
             setActiveId(cfg.id);
             setApiKey(cfg.apiKey);
+            setBaseUrlOverride(cfg.baseUrl);
             if (cfg.id === "custom") {
-              setCustomBaseUrl(cfg.baseUrl);
               setCustomModel(cfg.model);
             } else {
               setSelectedModel(cfg.model);
@@ -231,20 +232,20 @@ export default function Model() {
     setSaved(false);
 
     const savedCfg = allConfigs.providers[id];
+    const provider = PROVIDERS.find((p) => p.id === id)!;
     if (savedCfg?.apiKey) {
       setApiKey(savedCfg.apiKey);
+      setBaseUrlOverride(savedCfg.baseUrl);
       if (id === "custom") {
-        setCustomBaseUrl(savedCfg.baseUrl);
         setCustomModel(savedCfg.model);
       } else {
-        setSelectedModel(savedCfg.model || PROVIDERS.find((p) => p.id === id)?.models[0] || "");
+        setSelectedModel(savedCfg.model || provider.models[0] || "");
       }
     } else {
       setApiKey("");
-      const provider = PROVIDERS.find((p) => p.id === id)!;
+      setBaseUrlOverride(provider.baseUrl);
       setSelectedModel(provider.models[0] || "");
       if (id === "custom") {
-        setCustomBaseUrl("");
         setCustomModel("");
       }
     }
@@ -253,7 +254,7 @@ export default function Model() {
   const getProvider = (): ModelProvider => ({
     id: active.id,
     name: active.name,
-    baseUrl: active.id === "custom" ? customBaseUrl : active.baseUrl,
+    baseUrl: baseUrlOverride || active.baseUrl,
     apiKey,
     model: active.id === "custom" ? customModel : selectedModel,
   });
@@ -288,7 +289,7 @@ export default function Model() {
     }
   };
 
-  const isValid = apiKey.trim() && (active.id !== "custom" || (customBaseUrl.trim() && customModel.trim()));
+  const isValid = apiKey.trim() && (active.id !== "custom" || (baseUrlOverride.trim() && customModel.trim()));
   const currentPricing = active.pricing[selectedModel];
 
   return (
@@ -370,7 +371,7 @@ export default function Model() {
           {/* API Key */}
           <div className="bg-white rounded-xl p-3">
             <label className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-1.5 block">
-              API Key <span className="text-red-400">*</span>
+              <Term k="API Key" /> <span className="text-red-400">*</span>
             </label>
             <input
               type="password"
@@ -386,11 +387,11 @@ export default function Model() {
             <>
               <div className="bg-white rounded-xl p-3">
                 <label className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-1.5 block">
-                  Base URL <span className="text-red-400">*</span>
+                  <Term k="Base URL" /> <span className="text-red-400">*</span>
                 </label>
                 <input
-                  value={customBaseUrl}
-                  onChange={(e) => setCustomBaseUrl(e.target.value)}
+                  value={baseUrlOverride}
+                  onChange={(e) => setBaseUrlOverride(e.target.value)}
                   placeholder="https://api.example.com/v1"
                   className="w-full bg-neutral-50 rounded-lg px-3 py-2 text-[11px] text-neutral-700 font-medium outline-none placeholder:text-neutral-300"
                 />
@@ -441,7 +442,7 @@ export default function Model() {
                     <span>
                       输出 <span className="font-medium text-neutral-500">{formatPrice(currentPricing.output)}</span>
                     </span>
-                    <span className="text-[9px] text-neutral-300">元/百万 tokens</span>
+                    <span className="text-[9px] text-neutral-300">元/百万 <Term k="Token">tokens</Term></span>
                   </div>
                   {currentPricing.note && (
                     <p className="text-[9px] text-neutral-300">{currentPricing.note}</p>
@@ -495,15 +496,18 @@ export default function Model() {
             </div>
           )}
 
-          {/* Base URL (read-only for preset) */}
+          {/* Base URL (editable for preset) */}
           {active.id !== "custom" && (
             <div className="bg-white rounded-xl p-3">
               <label className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-1.5 block">
-                Base URL
+                <Term k="Base URL" />
               </label>
-              <div className="text-[10px] text-neutral-400 font-mono bg-neutral-50 rounded-lg px-3 py-2">
-                {active.baseUrl}
-              </div>
+              <input
+                value={baseUrlOverride || active.baseUrl}
+                onChange={(e) => setBaseUrlOverride(e.target.value)}
+                placeholder={active.baseUrl}
+                className="w-full bg-neutral-50 rounded-lg px-3 py-2 text-[10px] text-neutral-700 font-mono outline-none placeholder:text-neutral-300"
+              />
             </div>
           )}
         </div>

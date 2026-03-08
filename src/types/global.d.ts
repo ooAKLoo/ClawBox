@@ -22,15 +22,13 @@ export interface FeishuConfig {
 }
 
 export interface SecurityConfig {
-  toolsProfile: "messaging" | "coding" | "full";
   blockPublicExpose: boolean;
   blockShellAccess: boolean;
   blockFullDiskAccess: boolean;
-  skillWhitelist: boolean;
   encryptCredentials: boolean;
-  lockStableChannel: boolean;
   groupChatEnabled: boolean;
   groupChatWhitelist: string[];
+  promptScanEnabled: boolean;
 }
 
 export interface AssistantConfig {
@@ -64,6 +62,28 @@ export interface LogEntry {
   level: "info" | "warn" | "error";
   category: "system" | "assistant" | "model" | "gateway";
   msg: string;
+}
+
+export interface SecurityAlert {
+  id: string;
+  level: "warn" | "error";
+  title: string;
+  detail: string;
+  action?: string;
+}
+
+export interface UpdateResult {
+  hasUpdate: boolean;
+  latestVersion?: string;
+  releaseNotes?: string;
+  forceUpdate?: boolean;
+  downloadUrl?: string;
+  currentVersion: string;
+}
+
+export interface PromptScanResult {
+  level: "safe" | "low" | "medium" | "high";
+  matched: string[];
 }
 
 export type InstallStepStatus = "pending" | "running" | "done" | "error" | "skipped";
@@ -112,6 +132,15 @@ interface ClawBoxAPI {
   createAssistant: (config: Omit<AssistantConfig, "id" | "createdAt">) => Promise<{ success: boolean; assistant?: AssistantConfig; error?: string }>;
   removeAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Orbit (Update / Feedback)
+  checkUpdate: () => Promise<UpdateResult>;
+  sendFeedback: (data: { content: string; contact?: string }) => Promise<{ success: boolean; error?: string }>;
+
+  // Security alerts
+  onSecurityAlert: (callback: (alert: SecurityAlert) => void) => () => void;
+  dismissSecurityAlert: (alertId: string) => Promise<{ success: boolean }>;
+  scanPrompt: (text: string) => Promise<PromptScanResult>;
 }
 
 declare global {

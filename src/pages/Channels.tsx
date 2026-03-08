@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { FeishuConfig, FeishuPreflightCheck } from "../types/global";
+import Term from "../components/Glossary";
+import feishuIconSrc from "../assets/icons/feishu.png";
+import discordIconSrc from "../assets/icons/discord.png";
 
 const openLink = async (url: string) => {
   try {
@@ -109,7 +112,7 @@ export default function Channels() {
         <ChannelCard
           name="飞书机器人"
           description="在飞书中 @机器人 发送消息，即可触发助手处理"
-          icon="飞"
+          icon={<FeishuIcon />}
           status={activateResult?.success ? "connected" : "idle"}
           statusLabel={activateResult?.success ? "已连接" : feishuConfigured ? "已配置（未验证）" : "未配置"}
           expanded={expandedId === "feishu"}
@@ -134,11 +137,11 @@ export default function Channels() {
             <StepItem
               number={2}
               title="填入应用凭证"
-              hint="在应用的「凭证与基础信息」页面复制 App ID 和 App Secret"
+              hint={<>在应用的「凭证与基础信息」页面复制 <Term k="App ID" /> 和 <Term k="App Secret" /></>}
             >
               <div className="space-y-2">
                 <ConfigField
-                  label="App ID"
+                  label={<Term k="App ID" />}
                   required
                   value={feishuConfig.appId}
                   onChange={(v) =>
@@ -147,7 +150,7 @@ export default function Channels() {
                   placeholder="cli_xxxxx"
                 />
                 <ConfigField
-                  label="App Secret"
+                  label={<Term k="App Secret" />}
                   required
                   value={feishuConfig.appSecret}
                   onChange={(v) =>
@@ -171,7 +174,7 @@ export default function Channels() {
             <StepItem
               number={3}
               title="保存并连接"
-              hint="自动检测权限和配置，保存后启动 Gateway 并验证飞书长连接"
+              hint={<>自动检测权限和配置，保存后启动 <Term k="Gateway" /> 并验证飞书 <Term k="WebSocket">长连接</Term></>}
             >
               <div className="space-y-3">
                 <motion.button
@@ -297,7 +300,7 @@ export default function Channels() {
                 >
                   <div className="space-y-2">
                     <ConfigField
-                      label="Verification Token"
+                      label={<Term k="Verification Token" />}
                       value={feishuConfig.verificationToken}
                       onChange={(v) =>
                         setFeishuConfig({
@@ -308,7 +311,7 @@ export default function Channels() {
                       placeholder="可选，用于验证请求来源"
                     />
                     <ConfigField
-                      label="Encrypt Key"
+                      label={<Term k="Encrypt Key" />}
                       value={feishuConfig.encryptKey}
                       onChange={(v) =>
                         setFeishuConfig({
@@ -329,7 +332,7 @@ export default function Channels() {
         <ChannelCard
           name="Discord Bot"
           description="通过 Discord Bot 接收消息，在频道中触发助手"
-          icon="DC"
+          icon={<img src={discordIconSrc} alt="Discord" className="w-[18px] h-[18px]" />}
           status="coming_soon"
           statusLabel="即将支持"
           expanded={false}
@@ -338,7 +341,7 @@ export default function Channels() {
 
         {/* ---- Local CLI ---- */}
         <ChannelCard
-          name="本地 CLI / HTTP API"
+          name={<>本地 <Term k="CLI" /> / HTTP API</>}
           description="通过命令行或 HTTP 请求直接调用 Gateway"
           icon=">"
           status={gatewayRunning ? "connected" : "idle"}
@@ -376,6 +379,12 @@ export default function Channels() {
 /*  Sub-components                                                     */
 /* ------------------------------------------------------------------ */
 
+function FeishuIcon() {
+  return (
+    <img src={feishuIconSrc} alt="飞书" className="w-[18px] h-[18px]" />
+  );
+}
+
 function StepItem({
   number,
   title,
@@ -384,7 +393,7 @@ function StepItem({
 }: {
   number: number;
   title: string;
-  hint: string;
+  hint: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -440,9 +449,9 @@ function ChannelCard({
   onToggle,
   children,
 }: {
-  name: string;
+  name: React.ReactNode;
   description: string;
-  icon: string;
+  icon: React.ReactNode;
   status: "connected" | "idle" | "coming_soon";
   statusLabel: string;
   expanded: boolean;
@@ -463,7 +472,7 @@ function ChannelCard({
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[11px] font-bold text-neutral-500 flex-shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[11px] font-bold text-neutral-500 flex-shrink-0 overflow-hidden">
               {icon}
             </div>
             <div className="min-w-0">
@@ -525,7 +534,7 @@ function ConfigField({
   type = "text",
   required = false,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;

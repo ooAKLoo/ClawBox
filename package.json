@@ -16,6 +16,9 @@
     "package": "npm run patch-osx-sign && npm run prepare-runtime && vite build && electron-builder"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.19",
+    "@langchain/core": "^1.1.31",
+    "@ooakloowj/orbit": "^0.1.4",
     "framer-motion": "^11.18.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -54,17 +57,30 @@
       {
         "from": "runtime/",
         "to": "runtime",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

@@ -200,15 +200,13 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       const api = window.clawbox;
       if (!api) return;
       await api.saveSecurityConfig({
-        toolsProfile: "messaging",
         blockPublicExpose: true,
         blockShellAccess: true,
         blockFullDiskAccess: true,
-        skillWhitelist: true,
         encryptCredentials: true,
-        lockStableChannel: true,
         groupChatEnabled: false,
         groupChatWhitelist: [],
+        promptScanEnabled: true,
       });
       await api.startDaemon();
       setLaunched(true);
