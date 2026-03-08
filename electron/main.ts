@@ -10,6 +10,7 @@ import { configureExposureMonitor, isEncryptionAvailable, scanPrompt, syncSecuri
 import { readModelData, saveModelConfig, testModelConnection } from "./lib/model";
 import { saveFeishuConfig, getFeishuConfig, testFeishuConnection, feishuPreflight, activateFeishuChannel } from "./lib/feishu";
 import { readAssistants, createAssistant, removeAssistant, toggleAssistant } from "./lib/assistants";
+import { listSkills, toggleSkill, listPlugins, togglePlugin } from "./lib/extensions";
 import { initOrbit, checkUpdate, sendFeedback } from "./lib/orbit";
 
 let mainWindow: BrowserWindow | null = null;
@@ -189,6 +190,13 @@ ipcMain.handle("list-assistants", () => readAssistants());
 ipcMain.handle("create-assistant", (_e, config) => createAssistant(config));
 ipcMain.handle("remove-assistant", (_e, id) => removeAssistant(id));
 ipcMain.handle("toggle-assistant", (_e, id) => toggleAssistant(id));
+
+// --- Extensions IPC ---
+
+ipcMain.handle("list-skills", () => listSkills());
+ipcMain.handle("toggle-skill", (_e, name: string, enable: boolean) => toggleSkill(name, enable));
+ipcMain.handle("list-plugins", () => listPlugins());
+ipcMain.handle("toggle-plugin", (_e, id: string, enable: boolean) => togglePlugin(id, enable));
 
 // --- Security IPC ---
 

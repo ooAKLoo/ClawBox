@@ -44,6 +44,28 @@ export interface AssistantConfig {
   createdAt: number;
 }
 
+export interface SkillInfo {
+  name: string;
+  description: string;
+  emoji: string;
+  homepage: string;
+  os: string[];
+  requires: { bins: string[]; env: string[] };
+  install: { id: string; kind: string; label: string }[];
+  eligible: boolean;
+  enabled: boolean;
+}
+
+export interface PluginInfo {
+  id: string;
+  name: string;
+  kind: string;
+  channels: string[];
+  enabled: boolean;
+  hasConfig: boolean;
+  configFields: string[];
+}
+
 export interface AppSettings {
   autoStart: boolean;
   autoUpdate: boolean;
@@ -132,6 +154,12 @@ interface ClawBoxAPI {
   createAssistant: (config: Omit<AssistantConfig, "id" | "createdAt">) => Promise<{ success: boolean; assistant?: AssistantConfig; error?: string }>;
   removeAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Extensions (Skills & Plugins)
+  listSkills: () => Promise<SkillInfo[]>;
+  toggleSkill: (name: string, enable: boolean) => Promise<{ success: boolean; error?: string }>;
+  listPlugins: () => Promise<PluginInfo[]>;
+  togglePlugin: (id: string, enable: boolean) => Promise<{ success: boolean; error?: string }>;
 
   // Orbit (Update / Feedback)
   checkUpdate: () => Promise<UpdateResult>;

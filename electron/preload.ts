@@ -70,6 +70,12 @@ contextBridge.exposeInMainWorld("clawbox", {
   removeAssistant: (id: string) => ipcRenderer.invoke("remove-assistant", id),
   toggleAssistant: (id: string) => ipcRenderer.invoke("toggle-assistant", id),
 
+  // Extensions (Skills & Plugins)
+  listSkills: () => ipcRenderer.invoke("list-skills"),
+  toggleSkill: (name: string, enable: boolean) => ipcRenderer.invoke("toggle-skill", name, enable),
+  listPlugins: () => ipcRenderer.invoke("list-plugins"),
+  togglePlugin: (id: string, enable: boolean) => ipcRenderer.invoke("toggle-plugin", id, enable),
+
   // Security alerts
   onSecurityAlert: (callback: (alert: { id: string; level: string; title: string; detail: string; action?: string }) => void) => {
     const handler = (_event: unknown, alert: { id: string; level: string; title: string; detail: string; action?: string }) => callback(alert);
