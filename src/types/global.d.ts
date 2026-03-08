@@ -6,6 +6,26 @@ export interface ModelProvider {
   model: string;
 }
 
+export interface ModelUsage {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requests: number;
+}
+
+export interface UsageStats {
+  byProvider: Record<string, {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    requests: number;
+    models: Record<string, ModelUsage>;
+  }>;
+  total: { inputTokens: number; outputTokens: number; totalTokens: number; requests: number };
+}
+
 export interface FeishuPreflightCheck {
   key: string;
   label: string;
@@ -42,6 +62,48 @@ export interface AssistantConfig {
   params: Record<string, string>;
   cronJobId?: string;
   createdAt: number;
+}
+
+export interface SkillInstaller {
+  id: string;
+  kind: string;
+  label: string;
+  command: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  emoji: string;
+  homepage: string;
+  os: string[];
+  requires: { bins: string[]; env: string[] };
+  install: SkillInstaller[];
+  eligible: boolean;
+  enabled: boolean;
+}
+
+export interface PluginInfo {
+  id: string;
+  name: string;
+  kind: string;
+  channels: string[];
+  enabled: boolean;
+  hasConfig: boolean;
+  configFields: string[];
+}
+
+export interface MemoryStatus {
+  available: boolean;
+  backend: string;
+  files: { path: string; size: number; mtime: number }[];
+  error?: string;
+}
+
+export interface MemorySearchResult {
+  snippet: string;
+  path: string;
+  score: number;
 }
 
 export interface AppSettings {
@@ -108,6 +170,7 @@ interface ClawBoxAPI {
   saveModelConfig: (provider: ModelProvider) => Promise<{ success: boolean }>;
   getModelConfig: () => Promise<ModelProvider | null>;
   getAllModelConfigs: () => Promise<{ activeId: string | null; providers: Record<string, ModelProvider> }>;
+  getUsageStats: () => Promise<UsageStats>;
   saveFeishuConfig: (config: FeishuConfig) => Promise<{ success: boolean }>;
   getFeishuConfig: () => Promise<FeishuConfig | null>;
   testFeishuConnection: () => Promise<{ success: boolean; botName?: string; error?: string }>;
@@ -132,6 +195,17 @@ interface ClawBoxAPI {
   createAssistant: (config: Omit<AssistantConfig, "id" | "createdAt">) => Promise<{ success: boolean; assistant?: AssistantConfig; error?: string }>;
   removeAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Extensions (Skills & Plugins)
+  listSkills: () => Promise<SkillInfo[]>;
+  toggleSkill: (name: string, enable: boolean) => Promise<{ success: boolean; error?: string }>;
+  listPlugins: () => Promise<PluginInfo[]>;
+  togglePlugin: (id: string, enable: boolean) => Promise<{ success: boolean; error?: string }>;
+
+  // Memory
+  getMemoryStatus: () => Promise<MemoryStatus>;
+  readMemoryFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string }>;
+  searchMemory: (query: string) => Promise<{ success: boolean; results?: MemorySearchResult[]; error?: string }>;
 
   // Orbit (Update / Feedback)
   checkUpdate: () => Promise<UpdateResult>;

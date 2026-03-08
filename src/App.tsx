@@ -9,7 +9,7 @@ import SecurityDialog from "./sections/SecuritySummary";
 import SettingsDialog from "./components/SettingsDialog";
 import SecurityParticles from "./components/SecurityParticles";
 import Term from "./components/Glossary";
-import type { SecurityAlert, SecurityConfig } from "./types/global";
+import type { SecurityAlert, SecurityConfig, UsageStats } from "./types/global";
 import feishuIconSrc from "./assets/icons/feishu.png";
 import clawboxIconSrc from "./assets/icons/clawbox.svg";
 
@@ -29,6 +29,50 @@ const MODEL_ICONS: Record<string, string> = {
   siliconflow: iconSiliconflow, hunyuan: iconHunyuan, minimax: iconMinimax,
   zhipu: iconZhipu, kimi: iconKimi, stepfun: iconStepfun,
 };
+
+/** Map OpenClaw provider IDs to display names */
+const PROVIDER_LABELS: Record<string, string> = {
+  dashscope: "阿里云百炼 Qwen",
+  deepseek: "DeepSeek",
+  stepfun: "阶跃星辰",
+  minimax: "MiniMax",
+  hunyuan: "腾讯混元",
+  moonshot: "Kimi (月之暗面)",
+  volcengine: "火山方舟",
+  zhipu: "智谱 GLM",
+  siliconflow: "硅基流动",
+};
+
+/** Map OpenClaw provider IDs to ClawBox icon keys */
+const PROVIDER_ICON_MAP: Record<string, string> = {
+  dashscope: "qwen",
+  moonshot: "kimi",
+};
+
+/** 价格：元 / 百万 tokens */
+const PROVIDER_PRICING: Record<string, { input: number; output: number }> = {
+  dashscope: { input: 1, output: 4 },
+  deepseek: { input: 2, output: 3 },
+  stepfun: { input: 0.7, output: 2.1 },
+  minimax: { input: 2.1, output: 8.4 },
+  hunyuan: { input: 3.18, output: 7.95 },
+  moonshot: { input: 4, output: 16 },
+  volcengine: { input: 0.6, output: 3.6 },
+  zhipu: { input: 1, output: 3 },
+  siliconflow: { input: 0.7, output: 2.1 },
+};
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function estimateCost(provider: string, input: number, output: number): number | null {
+  const p = PROVIDER_PRICING[provider];
+  if (!p) return null;
+  return (input / 1_000_000) * p.input + (output / 1_000_000) * p.output;
+}
 
 export default function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
@@ -51,17 +95,20 @@ export default function App() {
   const [channelCount, setChannelCount] = useState(0);
   const [feishuConfigured, setFeishuConfigured] = useState(false);
   const [securitySafe, setSecuritySafe] = useState(true);
+  const [usage, setUsage] = useState<UsageStats | null>(null);
 
   const refreshSummary = async () => {
     try {
       const api = window.clawbox;
       if (!api) return;
-      const [modelCfg, feishuCfg, secCfg, daemon] = await Promise.all([
+      const [modelCfg, feishuCfg, secCfg, daemon, usageStats] = await Promise.all([
         api.getModelConfig(),
         api.getFeishuConfig(),
         api.getSecurityConfig(),
         api.getDaemonStatus(),
+        api.getUsageStats(),
       ]);
+      if (usageStats) setUsage(usageStats);
       setModelConfigured(!!modelCfg?.apiKey);
       setModelName(modelCfg?.name ?? null);
       setModelId(modelCfg?.id ?? null);
@@ -320,7 +367,7 @@ export default function App() {
 
             {/* Config summary cards — Model & Channel */}
             <div className="grid grid-cols-2 gap-3 mb-4">
-              {/* Model card */}
+              {/* Model card — with inline token usage */}
               <motion.button
                 whileTap={{ scale: 0.99 }}
                 onClick={() => setModelOpen(true)}
@@ -333,12 +380,21 @@ export default function App() {
                     <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[10px] text-neutral-400 flex-shrink-0">AI</div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-0.5">模型</div>
+                    <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-0.5"><Term k="模型" /></div>
                     <div className="flex items-center gap-2">
                       <div className={`w-1.5 h-1.5 rounded-full ${modelConfigured ? "bg-emerald-500" : "bg-neutral-300"}`} />
                       <span className="text-[11px] font-medium text-neutral-700">
                         {modelConfigured ? modelName : "未配置"}
                       </span>
+                      {usage && usage.total.requests > 0 && (() => {
+                        const totalCost = Object.entries(usage.byProvider).reduce((sum, [pid, p]) => sum + (estimateCost(pid, p.inputTokens, p.outputTokens) ?? 0), 0);
+                        return (
+                          <span className="text-[9px] text-neutral-400 tabular-nums ml-auto">
+                            {formatTokens(usage.total.inputTokens)} / {formatTokens(usage.total.outputTokens)}
+                            {totalCost > 0 && <span className="text-neutral-300 ml-1.5">¥{totalCost < 0.01 ? "<0.01" : totalCost.toFixed(2)}</span>}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                   <span className="text-[10px] text-[#2563EB] flex-shrink-0">&rarr;</span>
@@ -360,7 +416,7 @@ export default function App() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-0.5">通道</div>
+                    <div className="text-[9px] font-medium text-neutral-400 uppercase tracking-wide mb-0.5"><Term k="通道" /></div>
                     <div className="flex items-center gap-2">
                       <div className={`w-1.5 h-1.5 rounded-full ${channelCount > 0 ? "bg-emerald-500" : "bg-neutral-300"}`} />
                       <span className="text-[11px] font-medium text-neutral-700">

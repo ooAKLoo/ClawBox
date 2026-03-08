@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("clawbox", {
   saveModelConfig: (provider: unknown) => ipcRenderer.invoke("save-model-config", provider),
   getModelConfig: () => ipcRenderer.invoke("get-model-config"),
   getAllModelConfigs: () => ipcRenderer.invoke("get-all-model-configs"),
+  getUsageStats: () => ipcRenderer.invoke("get-usage-stats"),
 
   // Feishu
   saveFeishuConfig: (config: unknown) => ipcRenderer.invoke("save-feishu-config", config),
@@ -69,6 +70,17 @@ contextBridge.exposeInMainWorld("clawbox", {
   createAssistant: (config: unknown) => ipcRenderer.invoke("create-assistant", config),
   removeAssistant: (id: string) => ipcRenderer.invoke("remove-assistant", id),
   toggleAssistant: (id: string) => ipcRenderer.invoke("toggle-assistant", id),
+
+  // Extensions (Skills & Plugins)
+  listSkills: () => ipcRenderer.invoke("list-skills"),
+  toggleSkill: (name: string, enable: boolean) => ipcRenderer.invoke("toggle-skill", name, enable),
+  listPlugins: () => ipcRenderer.invoke("list-plugins"),
+  togglePlugin: (id: string, enable: boolean) => ipcRenderer.invoke("toggle-plugin", id, enable),
+
+  // Memory
+  getMemoryStatus: () => ipcRenderer.invoke("get-memory-status"),
+  readMemoryFile: (filePath: string) => ipcRenderer.invoke("read-memory-file", filePath),
+  searchMemory: (query: string) => ipcRenderer.invoke("search-memory", query),
 
   // Security alerts
   onSecurityAlert: (callback: (alert: { id: string; level: string; title: string; detail: string; action?: string }) => void) => {
