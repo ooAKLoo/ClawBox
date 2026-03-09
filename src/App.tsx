@@ -77,6 +77,7 @@ function estimateCost(provider: string, input: number, output: number): number |
 export default function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
+  const [isMac, setIsMac] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [channelOpen, setChannelOpen] = useState(false);
@@ -129,11 +130,13 @@ export default function App() {
     (async () => {
       try {
         if (window.clawbox) {
-          const [complete, status, v] = await Promise.all([
+          const [complete, status, v, platform] = await Promise.all([
             window.clawbox.getOnboardingComplete(),
             window.clawbox.getDaemonStatus(),
             window.clawbox.getVersion(),
+            window.clawbox.getPlatform(),
           ]);
+          setIsMac(platform === "darwin");
           setShowOnboarding(!complete);
           setDaemonRunning(status.running);
           setDaemonPort(status.port);
@@ -229,16 +232,16 @@ export default function App() {
 
   // Onboarding
   if (showOnboarding) {
-    return <Onboarding onComplete={() => { setShowOnboarding(false); refreshSummary(); }} />;
+    return <Onboarding isMac={isMac} onComplete={() => { setShowOnboarding(false); refreshSummary(); }} />;
   }
 
   return (
     <div className="h-screen bg-white flex flex-col">
-      {/* Titlebar drag region */}
-      <div className="fixed top-0 left-0 right-0 h-12 titlebar-drag z-50" />
+      {/* Titlebar drag region (macOS only — Windows uses native menu bar) */}
+      {isMac && <div className="fixed top-0 left-0 right-0 h-12 titlebar-drag z-50" />}
 
       {/* Security alert banners */}
-      <div className="flex-shrink-0 pt-12">
+      <div className={`flex-shrink-0 ${isMac ? "pt-12" : "pt-2"}`}>
         <AnimatePresence>
           {alerts.map((alert) => (
             <motion.div

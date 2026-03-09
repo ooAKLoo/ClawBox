@@ -41,7 +41,7 @@ const INSTALL_STEPS_INIT: InstallStepInfo[] = [
   { id: "verify", label: "运行环境验证", status: "pending", detail: "等待校验" },
 ];
 
-export default function Onboarding({ onComplete }: OnboardingProps) {
+export default function Onboarding({ onComplete, isMac = true }: OnboardingProps & { isMac?: boolean }) {
   // Welcome splash vs stepped flow
   const [started, setStarted] = useState(false);
 
@@ -226,7 +226,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   /* ═══════ Render ═══════ */
   return (
     <div className="h-screen bg-white flex items-center justify-center">
-      <div className="fixed top-0 left-0 right-0 h-12 titlebar-drag z-50" />
+      {isMac && <div className="fixed top-0 left-0 right-0 h-12 titlebar-drag z-50" />}
       <AnimatePresence mode="wait">
         {!started ? (
           /* ═══════ Welcome Splash ═══════ */
