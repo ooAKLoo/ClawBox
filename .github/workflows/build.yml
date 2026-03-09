@@ -151,6 +151,43 @@ jobs:
           echo "Files to upload:"
           ls -lh upload/
 
+      - name: Generate download links file
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION_NUM=${VERSION#v}
+          OSS_BASE="https://${{ secrets.OSS_BUCKET }}.oss-cn-shanghai.aliyuncs.com/releases/clawbox"
+          GITHUB_BASE="https://github.com/ooAKLoo/ClawBox/releases/download/${VERSION}"
+          GITHUB_RELEASE="https://github.com/ooAKLoo/ClawBox/releases/tag/${VERSION}"
+
+          cat > upload/download.md << EOF
+          # ClawBox ${VERSION} 下载链接
+
+          ---
+
+          ## 🇨🇳 中国用户（国内高速下载）
+
+          **Windows:** ${OSS_BASE}/latest/ClawBox.Setup.${VERSION_NUM}.exe
+          **macOS (Apple Silicon):** ${OSS_BASE}/latest/ClawBox-${VERSION_NUM}-arm64.dmg
+          **macOS (Intel):** ${OSS_BASE}/latest/ClawBox-${VERSION_NUM}.dmg
+
+          ---
+
+          ## 🌍 International Users (GitHub Download)
+
+          **Windows:** ${GITHUB_BASE}/ClawBox.Setup.${VERSION_NUM}.exe
+          **macOS (Apple Silicon):** ${GITHUB_BASE}/ClawBox-${VERSION_NUM}-arm64.dmg
+          **macOS (Intel):** ${GITHUB_BASE}/ClawBox-${VERSION_NUM}.dmg
+
+          ---
+
+          **GitHub Release:** ${GITHUB_RELEASE}
+          **版本 / Version:** ${VERSION}
+          EOF
+
+          sed -i 's/^          //' upload/download.md
+          echo "Generated download.md:"
+          cat upload/download.md
+
       - name: Upload to Aliyun OSS
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
