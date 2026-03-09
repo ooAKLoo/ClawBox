@@ -32,9 +32,10 @@ export function gatewayFetch(url: string, init?: RequestInit & { signal?: AbortS
   return fetch(url, { ...init, headers });
 }
 
-async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
+async function waitForPort(port: number, timeoutMs: number, abortSignal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (abortSignal?.aborted) return false;
     try {
       await gatewayFetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(1000) });
       return true;
@@ -60,7 +61,9 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
     console.log("[ClawBox] Spawning gateway:", cmd, fullArgs.join(" "));
     daemonProcess = spawn(cmd, fullArgs, { shell: true, env: daemonEnv });
 
-    let exited = false;
+    // AbortController to short-circuit waitForPort when process exits early
+    const abortController = new AbortController();
+
     daemonProcess.stdout?.on("data", (d) => {
       const line = d.toString().trim();
       if (!line) return;
@@ -78,21 +81,22 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
       console.error("[ClawBox] Daemon spawn error:", err);
       pushLog("error", "system", `Daemon spawn error: ${err.message}`);
       daemonProcess = null;
+      abortController.abort();
       reject(err);
     });
     daemonProcess.on("exit", (code) => {
       console.log("[ClawBox] Daemon exited with code:", code);
       pushLog("info", "system", `Daemon exited with code ${code}`);
-      exited = true;
       daemonProcess = null;
+      abortController.abort();
     });
 
-    const reachable = await waitForPort(DAEMON_PORT, DAEMON_START_TIMEOUT);
+    const reachable = await waitForPort(DAEMON_PORT, DAEMON_START_TIMEOUT, abortController.signal);
     if (reachable) {
       pushLog("info", "system", "Gateway 已启动（Token 认证已启用）");
       startExposureMonitor();
       resolve({ success: true, message: "Daemon started" });
-    } else if (exited) {
+    } else if (abortController.signal.aborted) {
       stopExposureMonitor();
       resolve({ success: false, message: "Daemon process exited before port became reachable" });
     } else {

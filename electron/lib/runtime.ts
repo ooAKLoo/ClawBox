@@ -39,7 +39,18 @@ export function getOpenClawCommand(): { cmd: string; args: string[]; env: NodeJS
   const hasBundled = fs.existsSync(paths.nodeBin) && fs.existsSync(paths.openclawBin);
 
   if (hasBundled) {
-    const openclawEntry = fs.realpathSync(paths.openclawBin);
+    let openclawEntry: string;
+
+    if (process.platform === "win32") {
+      // Windows: .cmd is a batch wrapper, not a symlink — resolve JS entry from package.json
+      const pkgJsonPath = path.join(paths.runtimeDir, "openclaw", "node_modules", "openclaw", "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+      const binEntry = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.openclaw;
+      openclawEntry = path.join(path.dirname(pkgJsonPath), binEntry);
+    } else {
+      openclawEntry = fs.realpathSync(paths.openclawBin);
+    }
+
     return {
       cmd: paths.nodeBin,
       args: [openclawEntry],

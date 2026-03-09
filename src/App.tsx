@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Settings, ShieldCheck } from "lucide-react";
 import Onboarding from "./pages/Onboarding";
 import ModelDialog from "./sections/ModelSection";
 import ChannelDialog from "./sections/ChannelSection";
@@ -109,6 +109,8 @@ export default function App() {
         api.getUsageStats(),
       ]);
       if (usageStats) setUsage(usageStats);
+      setDaemonRunning(daemon.running);
+      setDaemonPort(daemon.port);
       setModelConfigured(!!modelCfg?.apiKey);
       setModelName(modelCfg?.name ?? null);
       setModelId(modelCfg?.id ?? null);
@@ -183,14 +185,8 @@ export default function App() {
   }, [dismissAlert]);
 
   const refreshDaemon = async () => {
-    try {
-      const status = await window.clawbox?.getDaemonStatus();
-      if (status) {
-        setDaemonRunning(status.running);
-        setDaemonPort(status.port);
-      }
-    } catch { /* */ }
-    refreshSummary();
+    // refreshSummary already calls getDaemonStatus, avoid duplicate 2s timeout
+    await refreshSummary();
   };
 
   const handleStart = async () => {
@@ -225,7 +221,7 @@ export default function App() {
   // Loading
   if (showOnboarding === null) {
     return (
-      <div className="h-screen bg-[#f8f8f8] flex items-center justify-center">
+      <div className="h-screen bg-white flex items-center justify-center">
         <div className="text-[11px] text-neutral-400">加载中...</div>
       </div>
     );
@@ -233,59 +229,58 @@ export default function App() {
 
   // Onboarding
   if (showOnboarding) {
-    return <Onboarding onComplete={() => setShowOnboarding(false)} />;
+    return <Onboarding onComplete={() => { setShowOnboarding(false); refreshSummary(); }} />;
   }
 
   return (
-    <div className="h-screen bg-[#f8f8f8] flex flex-col">
+    <div className="h-screen bg-white flex flex-col">
       {/* Titlebar drag region */}
       <div className="fixed top-0 left-0 right-0 h-12 titlebar-drag z-50" />
 
-      {/* Main content area */}
-      <main className="flex-1 min-h-0 pt-12 p-3">
-        <div className="bg-white rounded-3xl h-full overflow-hidden flex flex-col">
-          {/* Security alert banners */}
-          <AnimatePresence>
-            {alerts.map((alert) => (
-              <motion.div
-                key={alert.id}
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="flex-shrink-0 overflow-hidden"
-              >
-                <div className={`px-4 py-2.5 flex items-center gap-3 ${
-                  alert.level === "error" ? "bg-[#FFF1F2]" : "bg-[#FFFBEB]"
-                }`}>
-                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    alert.level === "error" ? "bg-[#FF3B30]" : "bg-[#FF9F0A]"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <span className={`text-[10px] font-medium ${
-                      alert.level === "error" ? "text-[#E11D48]" : "text-[#D97706]"
-                    }`}>{alert.title}</span>
-                    <span className={`text-[10px] ml-2 ${
-                      alert.level === "error" ? "text-[#E11D48]/70" : "text-[#D97706]/70"
-                    }`}>{alert.detail}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {alert.action && (
-                      <button onClick={() => handleAlertAction(alert)} className={`text-[10px] font-medium px-2 py-1 rounded-lg ${
-                        alert.level === "error" ? "bg-[#E11D48] text-white" : "bg-[#D97706] text-white"
-                      }`}>前往处理</button>
-                    )}
-                    <button onClick={() => dismissAlert(alert.id)} className={`text-[10px] font-medium px-2 py-1 rounded-lg ${
-                      alert.level === "error" ? "text-[#E11D48] bg-[#E11D48]/10" : "text-[#D97706] bg-[#D97706]/10"
-                    }`}>忽略</button>
-                  </div>
+      {/* Security alert banners */}
+      <div className="flex-shrink-0 pt-12">
+        <AnimatePresence>
+          {alerts.map((alert) => (
+            <motion.div
+              key={alert.id}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="overflow-hidden"
+            >
+              <div className={`px-6 py-2.5 flex items-center gap-3 ${
+                alert.level === "error" ? "bg-[#FFF1F2]" : "bg-[#FFFBEB]"
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  alert.level === "error" ? "bg-[#FF3B30]" : "bg-[#FF9F0A]"
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <span className={`text-[10px] font-medium ${
+                    alert.level === "error" ? "text-[#E11D48]" : "text-[#D97706]"
+                  }`}>{alert.title}</span>
+                  <span className={`text-[10px] ml-2 ${
+                    alert.level === "error" ? "text-[#E11D48]/70" : "text-[#D97706]/70"
+                  }`}>{alert.detail}</span>
                 </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {alert.action && (
+                    <button onClick={() => handleAlertAction(alert)} className={`text-[10px] font-medium px-2 py-1 rounded-lg ${
+                      alert.level === "error" ? "bg-[#E11D48] text-white" : "bg-[#D97706] text-white"
+                    }`}>前往处理</button>
+                  )}
+                  <button onClick={() => dismissAlert(alert.id)} className={`text-[10px] font-medium px-2 py-1 rounded-lg ${
+                    alert.level === "error" ? "text-[#E11D48] bg-[#E11D48]/10" : "text-[#D97706] bg-[#D97706]/10"
+                  }`}>忽略</button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
-          {/* Scrollable page content */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-6">
+      {/* Scrollable page content */}
+      <main className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
             {/* Top bar */}
             <div className="flex items-center justify-between mb-6">
               {/* Left: icon + title + gateway */}
@@ -431,8 +426,6 @@ export default function App() {
 
             {/* Assistants — main area */}
             <AssistantSection />
-          </div>
-        </div>
       </main>
 
       {/* Dialogs */}

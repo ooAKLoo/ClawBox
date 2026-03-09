@@ -162,7 +162,7 @@ export default function ModelDialog({ open, onClose }: ModelDialogProps) {
             {/* Content */}
             <div className="px-6 pb-6 overflow-y-auto flex-1 space-y-3">
               {/* Provider selector — horizontal scroll */}
-              <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
                 {PROVIDERS.map((p) => {
                   const isThisConfigured = !!allConfigs.providers[p.id]?.apiKey;
                   const isThisActive = allConfigs.activeId === p.id;

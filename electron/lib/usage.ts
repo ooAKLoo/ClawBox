@@ -28,8 +28,18 @@ export interface UsageStats {
   total: { inputTokens: number; outputTokens: number; totalTokens: number; requests: number };
 }
 
+// Cache to avoid re-scanning all files on every call
+let _statsCache: UsageStats | null = null;
+let _statsCacheTime = 0;
+const STATS_CACHE_TTL = 30_000; // 30s
+
 /** Scan all OpenClaw session JSONL files and aggregate token usage by provider/model */
-export function getUsageStats(): UsageStats {
+export async function getUsageStats(): Promise<UsageStats> {
+  // Return cached result if fresh
+  if (_statsCache && Date.now() - _statsCacheTime < STATS_CACHE_TTL) {
+    return _statsCache;
+  }
+
   const stats: UsageStats = {
     byProvider: {},
     total: { inputTokens: 0, outputTokens: 0, totalTokens: 0, requests: 0 },
@@ -45,20 +55,22 @@ export function getUsageStats(): UsageStats {
 
       const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".jsonl"));
       for (const file of files) {
-        parseSessionFile(path.join(sessionsDir, file), stats);
+        await parseSessionFile(path.join(sessionsDir, file), stats);
       }
     }
   } catch (err) {
     pushLog("warn", "system", `读取用量统计失败: ${err}`);
   }
 
+  _statsCache = stats;
+  _statsCacheTime = Date.now();
   return stats;
 }
 
-function parseSessionFile(filePath: string, stats: UsageStats) {
+async function parseSessionFile(filePath: string, stats: UsageStats) {
   let content: string;
   try {
-    content = fs.readFileSync(filePath, "utf-8");
+    content = await fs.promises.readFile(filePath, "utf-8");
   } catch {
     return;
   }

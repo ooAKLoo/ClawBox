@@ -62,12 +62,19 @@ function getBundledSkillsDir(): string {
   return path.join(runtimeDir, "openclaw", "node_modules", "openclaw", "skills");
 }
 
+const _commandCache = new Map<string, boolean>();
+
 function commandExists(bin: string): boolean {
+  const cached = _commandCache.get(bin);
+  if (cached !== undefined) return cached;
   try {
     const { execSync } = require("child_process");
-    execSync(`which ${bin}`, { stdio: "ignore" });
+    const cmd = process.platform === "win32" ? `where ${bin}` : `which ${bin}`;
+    execSync(cmd, { stdio: "ignore", timeout: 3000 });
+    _commandCache.set(bin, true);
     return true;
   } catch {
+    _commandCache.set(bin, false);
     return false;
   }
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Term from "../components/Glossary";
 import type { SkillInfo, PluginInfo, MemoryStatus, MemorySearchResult } from "../types/global";
 
 // ── 中文友好名称 & 描述 ──
@@ -346,7 +347,7 @@ export default function AssistantSection() {
       <div className="mb-3">
         <div className="text-[11px] font-medium text-neutral-700">扩展</div>
         <div className="text-[10px] text-neutral-400 mt-0.5">
-          {loading ? "加载中..." : `${enabledSkills} 个 Skill 启用 · ${enabledPlugins} 个 Plugin 启用 · 共 ${skills.length + plugins.length} 个`}
+          {loading ? "加载中..." : <>{enabledSkills} 个 <Term k="Skill" /> 启用 · {enabledPlugins} 个 <Term k="Plugin" /> 启用 · 共 {skills.length + plugins.length} 个</>}
         </div>
       </div>
 
@@ -540,7 +541,7 @@ export default function AssistantSection() {
 
               {/* File tabs */}
               {memoryStatus && memoryStatus.files.length > 0 && !memorySearchResults && (
-                <div className="flex gap-1 mb-3 overflow-x-auto scrollbar-hide">
+                <div className="flex gap-1 mb-3 overflow-x-auto">
                   {memoryStatus.files.map((f) => (
                     <motion.button
                       key={f.path}

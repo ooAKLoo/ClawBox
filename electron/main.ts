@@ -81,6 +81,16 @@ app.whenReady().then(async () => {
   configureExposureMonitor({ isDaemonRunning, port: DAEMON_PORT });
   // Initialize Orbit SDK for analytics & update tracking
   await initOrbit();
+
+  // Sync login-item setting from persisted config
+  const savedSettings = readJsonFile("settings.json");
+  if (savedSettings?.autoStart !== undefined) {
+    app.setLoginItemSettings({
+      openAtLogin: !!savedSettings.autoStart,
+      ...(process.platform === "darwin" ? { openAsHidden: true } : {}),
+    });
+  }
+
   createWindow();
 });
 
@@ -142,9 +152,13 @@ ipcMain.handle("install-environment", async (event) => {
   if (versionCheck.code === 0) {
     send("verify", "done", `环境就绪 (${versionCheck.stdout})`);
   } else {
-    sendLog("verify", `Warning: version check returned code ${versionCheck.code}`);
-    send("verify", "done", "环境就绪");
+    const errMsg = versionCheck.stderr || versionCheck.stdout || `exit code ${versionCheck.code}`;
+    send("verify", "error", `运行时验证失败: ${errMsg}`);
+    return { success: false, failedStep: "verify", errorDetail: `openclaw --version 失败: ${errMsg}` };
   }
+  // Wait for the progress event to reach the renderer before resolving the invoke promise,
+  // otherwise installDone fires before the verify step UI updates.
+  await new Promise((r) => setTimeout(r, 80));
   return { success: true };
 });
 
@@ -295,7 +309,17 @@ ipcMain.handle("run-diagnostics", async () => {
 
 const defaultSettings = { autoStart: false, autoUpdate: true, language: "zh-CN", dataDir: configDir };
 
-ipcMain.handle("save-settings", (_e, settings) => { writeJsonFile("settings.json", settings); return { success: true }; });
+ipcMain.handle("save-settings", (_e, settings) => {
+  writeJsonFile("settings.json", settings);
+
+  // Apply auto-start (login item) setting
+  app.setLoginItemSettings({
+    openAtLogin: !!settings.autoStart,
+    ...(process.platform === "darwin" ? { openAsHidden: true } : {}),
+  });
+
+  return { success: true };
+});
 ipcMain.handle("get-settings", () => readJsonFile("settings.json") || defaultSettings);
 
 // --- Onboarding IPC ---

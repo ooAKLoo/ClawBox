@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
+import Term from "../components/Glossary";
 import type { SecurityConfig } from "../types/global";
 
 const defaults: SecurityConfig = {
@@ -19,18 +20,48 @@ type BooleanKey = {
 
 type PolicyItem = {
   key: BooleanKey;
-  title: string;
-  desc: string;
+  title: ReactNode;
+  desc: ReactNode;
   risk: "critical" | "high" | "medium";
 };
 
 const allItems: PolicyItem[] = [
-  { key: "blockPublicExpose", title: "禁止公网暴露", desc: "Gateway 仅监听 127.0.0.1", risk: "critical" },
-  { key: "blockShellAccess", title: "禁止 Shell 执行", desc: "不允许助手执行系统命令", risk: "critical" },
-  { key: "blockFullDiskAccess", title: "禁止全盘文件访问", desc: "限制文件读写到工作目录", risk: "high" },
-  { key: "encryptCredentials", title: "凭证加密存储", desc: "使用系统钥匙串加密", risk: "critical" },
-  { key: "groupChatEnabled", title: "启用群聊", desc: "默认仅私聊可用", risk: "medium" },
-  { key: "promptScanEnabled", title: "Prompt 注入扫描", desc: "检测提示词中的注入攻击", risk: "high" },
+  {
+    key: "blockPublicExpose",
+    title: <>禁止<Term k="公网暴露" /></>,
+    desc: "关闭后，外部网络可直接访问你的助手，任何人都能发指令操控它",
+    risk: "critical",
+  },
+  {
+    key: "blockShellAccess",
+    title: <>禁止 <Term k="Shell" /> 执行</>,
+    desc: "关闭后，助手可以在你电脑上执行任意命令，比如删除文件、安装软件",
+    risk: "critical",
+  },
+  {
+    key: "blockFullDiskAccess",
+    title: "禁止全盘文件访问",
+    desc: "关闭后，助手可以读写电脑上的所有文件，包括隐私文档和系统配置",
+    risk: "high",
+  },
+  {
+    key: "encryptCredentials",
+    title: <>凭证加密存储</>,
+    desc: <>关闭后，<Term k="API Key" /> 等敏感信息将以明文保存，一旦电脑被访问就会泄露</>,
+    risk: "critical",
+  },
+  {
+    key: "groupChatEnabled",
+    title: <>启用<Term k="群聊" /></>,
+    desc: "开启后，群内任何人都可以 @机器人触发操作，攻击面远大于私聊",
+    risk: "medium",
+  },
+  {
+    key: "promptScanEnabled",
+    title: <><Term k="Prompt 注入" />扫描</>,
+    desc: "关闭后，恶意用户可能通过特殊指令劫持助手，让它执行非预期操作",
+    risk: "high",
+  },
 ];
 
 interface SecurityDialogProps {
