@@ -74,6 +74,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/latest-mac.yml
 
   build-windows:
     runs-on: windows-latest
@@ -104,6 +105,8 @@ jobs:
           name: windows-build
           path: |
             release/*.exe
+            release/*.blockmap
+            release/latest.yml
 
   release:
     needs: [build-mac, build-windows]
@@ -123,7 +126,35 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.exe
+            artifacts/**/*.blockmap
+            artifacts/**/latest*.yml
           generate_release_notes: true
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 上传到阿里云 OSS（国内加速下载）
+      - name: Setup aliyun ossutil
+        uses: manyuanrong/setup-ossutil@v3.0
+        with:
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p upload
+          find artifacts/ -type f \( \
+            -name "*.exe" -o -name "*.blockmap" -o -name "*.dmg" -o \
+            -name "*.zip" -o -name "latest*.yml" \
+          \) -exec cp {} upload/ \;
+          echo "Files to upload:"
+          ls -lh upload/
+
+      - name: Upload to Aliyun OSS
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          # 上传到 /releases/clawbox/<version>/ 目录
+          ossutil cp -rf upload/ oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/${VERSION}/
+          # 同时复制到 /releases/clawbox/latest/ 供自动更新使用
+          ossutil cp -rf upload/ oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/latest/
