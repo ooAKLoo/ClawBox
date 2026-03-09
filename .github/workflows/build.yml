@@ -10,7 +10,7 @@ env:
   OPENCLAW_VERSION: "latest"
 
 jobs:
-  build-mac:
+  build-mac-x64:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -43,34 +43,110 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-      - name: Prepare runtime (x64)
+      - name: Prepare runtime
         run: node scripts/download-openclaw.js
         env:
           TARGET_ARCH: x64
 
       - name: Build macOS (x64)
-        run: node scripts/patch-osx-sign-emfile.js && ulimit -n 65536 && npx vite build && npx electron-builder --mac --x64 --publish never
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          node scripts/patch-osx-sign-emfile.js
+          ulimit -n 65536
+          npx vite build
+          for attempt in 1 2 3; do
+            echo "Build attempt $attempt..."
+            if npx electron-builder --mac --x64 --publish never; then
+              echo "Build succeeded on attempt $attempt"
+              break
+            fi
+            if [ $attempt -eq 3 ]; then
+              echo "Build failed after 3 attempts"
+              exit 1
+            fi
+            echo "Build failed, cleaning up and retrying in 30s..."
+            rm -rf release/mac* release/*.dmg release/*.zip
+            sleep 30
+          done
 
-      - name: Prepare runtime (ARM64)
+      - name: Upload macOS x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-x64-build
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/latest-mac.yml
+
+  build-mac-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Import Code Signing Certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Prepare runtime
         run: node scripts/download-openclaw.js
         env:
           TARGET_ARCH: arm64
 
       - name: Build macOS (ARM64)
-        run: node scripts/patch-osx-sign-emfile.js && ulimit -n 65536 && npx vite build && npx electron-builder --mac --arm64 --publish never
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          node scripts/patch-osx-sign-emfile.js
+          ulimit -n 65536
+          npx vite build
+          for attempt in 1 2 3; do
+            echo "Build attempt $attempt..."
+            if npx electron-builder --mac --arm64 --publish never; then
+              echo "Build succeeded on attempt $attempt"
+              break
+            fi
+            if [ $attempt -eq 3 ]; then
+              echo "Build failed after 3 attempts"
+              exit 1
+            fi
+            echo "Build failed, cleaning up and retrying in 30s..."
+            rm -rf release/mac* release/*.dmg release/*.zip
+            sleep 30
+          done
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS ARM64 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mac-build
+          name: mac-arm64-build
           path: |
             release/*.dmg
             release/*.zip
@@ -109,7 +185,7 @@ jobs:
             release/latest.yml
 
   release:
-    needs: [build-mac, build-windows]
+    needs: [build-mac-x64, build-mac-arm64, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,6 +194,33 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Merge latest-mac.yml
+        run: |
+          # 两个 mac job 各自生成的 latest-mac.yml 只含自己架构的文件条目
+          # 需要合并为一个包含 x64 + arm64 的完整文件
+          X64_YML="artifacts/mac-x64-build/latest-mac.yml"
+          ARM64_YML="artifacts/mac-arm64-build/latest-mac.yml"
+
+          if [ -f "$X64_YML" ] && [ -f "$ARM64_YML" ]; then
+            # 从 arm64 yml 中提取 files 条目（跳过 version/path/sha512/releaseDate 等顶层字段）
+            ARM64_FILES=$(awk '/^files:/{found=1; next} found && /^  - /{print; next} found && /^    /{print; next} found{exit}' "$ARM64_YML")
+
+            # 将 arm64 文件条目追加到 x64 yml 的 files 列表末尾（在 path: 行之前）
+            awk -v arm64="$ARM64_FILES" '
+              /^path:/ { print arm64 }
+              { print }
+            ' "$X64_YML" > artifacts/latest-mac.yml
+
+            # 用合并后的文件覆盖两份原始文件
+            cp artifacts/latest-mac.yml "$X64_YML"
+            cp artifacts/latest-mac.yml "$ARM64_YML"
+
+            echo "Merged latest-mac.yml:"
+            cat artifacts/latest-mac.yml
+          else
+            echo "Warning: One or both latest-mac.yml files not found, skipping merge"
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
