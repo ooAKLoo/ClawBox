@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/banner.png" alt="ClawBox Banner" width="100%" />
+
 # ClawBox
 
 **OpenClaw 桌面客户端**
