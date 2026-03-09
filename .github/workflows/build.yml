@@ -221,15 +221,20 @@ jobs:
             echo "Warning: One or both latest-mac.yml files not found, skipping merge"
           fi
 
+      - name: Flatten artifacts
+        run: |
+          mkdir -p upload
+          find artifacts/ -type f \( \
+            -name "*.exe" -o -name "*.blockmap" -o -name "*.dmg" -o \
+            -name "*.zip" -o -name "latest*.yml" \
+          \) -exec cp -n {} upload/ \;
+          echo "Files to upload:"
+          ls -lh upload/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/**/*.dmg
-            artifacts/**/*.zip
-            artifacts/**/*.exe
-            artifacts/**/*.blockmap
-            artifacts/**/latest*.yml
+          files: upload/*
           generate_release_notes: true
           draft: false
         env:
@@ -242,16 +247,6 @@ jobs:
           endpoint: ${{ secrets.OSS_ENDPOINT }}
           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-
-      - name: Flatten artifacts
-        run: |
-          mkdir -p upload
-          find artifacts/ -type f \( \
-            -name "*.exe" -o -name "*.blockmap" -o -name "*.dmg" -o \
-            -name "*.zip" -o -name "latest*.yml" \
-          \) -exec cp {} upload/ \;
-          echo "Files to upload:"
-          ls -lh upload/
 
       - name: Generate download links file
         run: |

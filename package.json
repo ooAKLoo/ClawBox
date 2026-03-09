@@ -73,6 +73,14 @@
         }
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "ClawBox",
+      "include": "build/uninstaller.nsh"
+    },
     "mac": {
       "target": [
         {

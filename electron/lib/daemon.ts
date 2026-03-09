@@ -58,7 +58,10 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
     const { cmd, args, env } = getOpenClawCommand();
     const bind = securityCfg.blockPublicExpose ? "loopback" : "lan";
     const fullArgs = [...args, "gateway", "run", "--port", String(DAEMON_PORT), "--bind", bind, "--force", "--allow-unconfigured", "--auth", "token", "--verbose"];
-    const daemonEnv = { ...env, OPENCLAW_AUTH_TOKEN: gatewayToken };
+    const daemonEnv = {
+      ...env,
+      OPENCLAW_GATEWAY_TOKEN: gatewayToken,
+    };
     console.log("[ClawBox] Spawning gateway:", cmd, fullArgs.join(" "));
     daemonProcess = spawn(cmd, fullArgs, { shell: true, env: daemonEnv });
 

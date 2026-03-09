@@ -170,12 +170,16 @@ ipcMain.handle("restart-daemon", () => restartDaemon());
 ipcMain.handle("get-daemon-status", () => getDaemonStatus());
 
 ipcMain.handle("open-browser-control", async () => {
-  const url = `http://127.0.0.1:${DAEMON_PORT}/app`;
+  const baseUrl = `http://127.0.0.1:${DAEMON_PORT}/app`;
   try {
-    await gatewayFetch(url, { signal: AbortSignal.timeout(2000) });
+    await gatewayFetch(baseUrl, { signal: AbortSignal.timeout(2000) });
   } catch {
     return { success: false, message: "Gateway 不可达，请确认已启动" };
   }
+  const token = getGatewayToken();
+  const url = token
+    ? `${baseUrl}?token=${encodeURIComponent(token)}`
+    : baseUrl;
   await shell.openExternal(url);
   return { success: true };
 });
