@@ -173,6 +173,35 @@ export function syncSecurityToOpenClaw(config: typeof defaultSecurity) {
   }
 }
 
+/**
+ * Write the gateway auth token into openclaw.json so the gateway picks it up
+ * on startup. Environment variables alone are unreliable on Windows when
+ * spawning through cmd.exe / shell wrappers.
+ */
+export function syncGatewayToken(token: string) {
+  try {
+    const ocConfigPath = getOpenclawConfigPath();
+    const dir = getOpenclawConfigDir();
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    let cfg: Record<string, unknown> = {};
+    if (fs.existsSync(ocConfigPath)) {
+      cfg = JSON.parse(fs.readFileSync(ocConfigPath, "utf-8"));
+    }
+
+    if (!cfg.gateway || typeof cfg.gateway !== "object") cfg.gateway = {};
+    const gw = cfg.gateway as Record<string, unknown>;
+    if (!gw.auth || typeof gw.auth !== "object") gw.auth = {};
+    const auth = gw.auth as Record<string, unknown>;
+    auth.mode = "token";
+    auth.token = token;
+
+    fs.writeFileSync(ocConfigPath, JSON.stringify(cfg, null, 2));
+  } catch (err) {
+    pushLog("error", "system", `写入 Gateway Token 到 OpenClaw 配置失败: ${err}`);
+  }
+}
+
 // --- Prompt injection scanner (built-in, no third-party runtime dependency) ---
 
 export type PromptRiskLevel = "safe" | "low" | "medium" | "high";

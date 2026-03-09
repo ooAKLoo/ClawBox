@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import crypto from "crypto";
 import { pushLog } from "./logger";
 import { getOpenClawCommand } from "./runtime";
-import { startExposureMonitor, stopExposureMonitor, getSecurityConfig, syncSecurityToOpenClaw } from "./security";
+import { startExposureMonitor, stopExposureMonitor, getSecurityConfig, syncSecurityToOpenClaw, syncGatewayToken } from "./security";
 
 export const DAEMON_PORT = 18789;
 const DAEMON_START_TIMEOUT = 15000;
@@ -53,6 +53,7 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
     // Read security config and sync to OpenClaw before spawning
     const securityCfg = getSecurityConfig();
     syncSecurityToOpenClaw(securityCfg);
+    syncGatewayToken(gatewayToken);
 
     const { cmd, args, env } = getOpenClawCommand();
     const bind = securityCfg.blockPublicExpose ? "loopback" : "lan";
