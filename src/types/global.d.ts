@@ -51,19 +51,6 @@ export interface SecurityConfig {
   promptScanEnabled: boolean;
 }
 
-export interface AssistantConfig {
-  id: string;
-  name: string;
-  icon: string;
-  sceneId: string | null;
-  status: "running" | "paused";
-  trigger: string;
-  systemPrompt: string;
-  params: Record<string, string>;
-  cronJobId?: string;
-  createdAt: number;
-}
-
 export interface SkillInstaller {
   id: string;
   kind: string;
@@ -122,7 +109,7 @@ export interface DaemonStatus {
 export interface LogEntry {
   time: string;
   level: "info" | "warn" | "error";
-  category: "system" | "assistant" | "model" | "gateway";
+  category: "system" | "model" | "gateway";
   msg: string;
 }
 
@@ -171,6 +158,7 @@ interface ClawBoxAPI {
   getModelConfig: () => Promise<ModelProvider | null>;
   getAllModelConfigs: () => Promise<{ activeId: string | null; providers: Record<string, ModelProvider> }>;
   getUsageStats: () => Promise<UsageStats>;
+  onUsageUpdated: (callback: (stats: UsageStats) => void) => () => void;
   saveFeishuConfig: (config: FeishuConfig) => Promise<{ success: boolean }>;
   getFeishuConfig: () => Promise<FeishuConfig | null>;
   testFeishuConnection: () => Promise<{ success: boolean; botName?: string; error?: string }>;
@@ -189,12 +177,6 @@ interface ClawBoxAPI {
   setOnboardingComplete: (value: boolean) => Promise<void>;
   getVersion: () => Promise<string>;
   openExternal: (url: string) => Promise<void>;
-
-  // Assistants
-  listAssistants: () => Promise<AssistantConfig[]>;
-  createAssistant: (config: Omit<AssistantConfig, "id" | "createdAt">) => Promise<{ success: boolean; assistant?: AssistantConfig; error?: string }>;
-  removeAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
-  toggleAssistant: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Extensions (Skills & Plugins)
   listSkills: () => Promise<SkillInfo[]>;

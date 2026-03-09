@@ -8,9 +8,8 @@ import { getRuntimePaths, getOpenClawCommand, detectBundledRuntime, runShell } f
 import { DAEMON_PORT, startDaemon, stopDaemon, restartDaemon, getDaemonStatus, killDaemon, gatewayFetch, getGatewayToken, isDaemonRunning } from "./lib/daemon";
 import { configureExposureMonitor, isEncryptionAvailable, scanPrompt, syncSecurityToOpenClaw } from "./lib/security";
 import { readModelData, saveModelConfig, testModelConnection } from "./lib/model";
-import { getUsageStats } from "./lib/usage";
+import { getUsageStats, setUsageWindow, startUsageWatcher, stopUsageWatcher } from "./lib/usage";
 import { saveFeishuConfig, getFeishuConfig, testFeishuConnection, feishuPreflight, activateFeishuChannel } from "./lib/feishu";
-import { readAssistants, createAssistant, removeAssistant, toggleAssistant } from "./lib/assistants";
 import { listSkills, toggleSkill, listPlugins, togglePlugin, getMemoryStatus, readMemoryFile, searchMemory } from "./lib/extensions";
 import { initOrbit, checkUpdate, sendFeedback } from "./lib/orbit";
 
@@ -32,6 +31,13 @@ function isExternalUrl(rawUrl: string) {
 }
 
 function createWindow() {
+  if (!app.isReady()) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+
   mainWindow = new BrowserWindow({
     width: 1060,
     height: 720,
@@ -48,6 +54,8 @@ function createWindow() {
   });
 
   setMainWindow(mainWindow);
+  setUsageWindow(mainWindow);
+  startUsageWatcher();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalUrl(url)) {
@@ -73,6 +81,8 @@ function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
     setMainWindow(null);
+    setUsageWindow(null);
+    stopUsageWatcher();
   });
 }
 
@@ -102,9 +112,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (mainWindow === null) {
-    createWindow();
-  }
+  createWindow();
 });
 
 // --- Environment verification ---
@@ -203,13 +211,6 @@ ipcMain.handle("get-feishu-config", () => getFeishuConfig());
 ipcMain.handle("test-feishu-connection", () => testFeishuConnection());
 ipcMain.handle("feishu-preflight", (_e, config) => feishuPreflight(config));
 ipcMain.handle("activate-feishu-channel", (_e, config) => activateFeishuChannel(config));
-
-// --- Assistants IPC ---
-
-ipcMain.handle("list-assistants", () => readAssistants());
-ipcMain.handle("create-assistant", (_e, config) => createAssistant(config));
-ipcMain.handle("remove-assistant", (_e, id) => removeAssistant(id));
-ipcMain.handle("toggle-assistant", (_e, id) => toggleAssistant(id));
 
 // --- Extensions IPC ---
 

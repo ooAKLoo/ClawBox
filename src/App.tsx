@@ -4,7 +4,6 @@ import { Settings, ShieldCheck } from "lucide-react";
 import Onboarding from "./pages/Onboarding";
 import ModelDialog from "./sections/ModelSection";
 import ChannelDialog from "./sections/ChannelSection";
-import AssistantSection from "./sections/AssistantSection";
 import SecurityDialog from "./sections/SecuritySummary";
 import SettingsDialog from "./components/SettingsDialog";
 import SecurityParticles from "./components/SecurityParticles";
@@ -157,6 +156,15 @@ export default function App() {
     const handler = () => { refreshSummary(); };
     window.addEventListener("clawbox-config-changed", handler);
     return () => window.removeEventListener("clawbox-config-changed", handler);
+  }, []);
+
+  // Live usage updates from backend file watcher
+  useEffect(() => {
+    if (!window.clawbox?.onUsageUpdated) return;
+    const unsub = window.clawbox.onUsageUpdated((stats) => {
+      setUsage(stats);
+    });
+    return unsub;
   }, []);
 
   // Security alerts
@@ -427,8 +435,6 @@ export default function App() {
               </motion.button>
             </div>
 
-            {/* Assistants — main area */}
-            <AssistantSection />
       </main>
 
       {/* Dialogs */}

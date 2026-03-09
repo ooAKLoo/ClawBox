@@ -1,12 +1,63 @@
 import fs from "fs";
 import path from "path";
 import { pushLog } from "./logger";
+import type { BrowserWindow } from "electron";
 
 const openclawHome = path.join(
   process.env.HOME || process.env.USERPROFILE || "",
   ".openclaw"
 );
 const agentsDir = path.join(openclawHome, "agents");
+
+// --- Usage file watcher ---
+
+let _mainWindow: BrowserWindow | null = null;
+let _watcher: fs.FSWatcher | null = null;
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const DEBOUNCE_MS = 1500; // debounce to avoid rapid successive updates
+
+export function setUsageWindow(win: BrowserWindow | null) {
+  _mainWindow = win;
+}
+
+export function startUsageWatcher() {
+  stopUsageWatcher();
+  if (!fs.existsSync(agentsDir)) return;
+
+  try {
+    _watcher = fs.watch(agentsDir, { recursive: true }, (_eventType, filename) => {
+      if (!filename || !filename.endsWith(".jsonl")) return;
+
+      // Debounce: wait for writes to settle before refreshing
+      if (_debounceTimer) clearTimeout(_debounceTimer);
+      _debounceTimer = setTimeout(async () => {
+        // Invalidate cache so next getUsageStats() re-scans
+        _statsCache = null;
+        _statsCacheTime = 0;
+
+        try {
+          const stats = await getUsageStats();
+          _mainWindow?.webContents.send("usage-updated", stats);
+        } catch (err) {
+          pushLog("warn", "system", `用量统计刷新失败: ${err}`);
+        }
+      }, DEBOUNCE_MS);
+    });
+  } catch (err) {
+    pushLog("warn", "system", `无法监听用量文件变化: ${err}`);
+  }
+}
+
+export function stopUsageWatcher() {
+  if (_debounceTimer) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = null;
+  }
+  if (_watcher) {
+    _watcher.close();
+    _watcher = null;
+  }
+}
 
 export interface ModelUsage {
   provider: string;

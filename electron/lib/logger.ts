@@ -1,7 +1,7 @@
 import type { BrowserWindow } from "electron";
 
 export type LogLevel = "info" | "warn" | "error";
-export type LogCategory = "system" | "assistant" | "model" | "gateway";
+export type LogCategory = "system" | "model" | "gateway";
 
 export interface LogEntry {
   time: string;

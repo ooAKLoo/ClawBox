@@ -25,6 +25,11 @@ contextBridge.exposeInMainWorld("clawbox", {
   getModelConfig: () => ipcRenderer.invoke("get-model-config"),
   getAllModelConfigs: () => ipcRenderer.invoke("get-all-model-configs"),
   getUsageStats: () => ipcRenderer.invoke("get-usage-stats"),
+  onUsageUpdated: (callback: (stats: unknown) => void) => {
+    const handler = (_event: unknown, stats: unknown) => callback(stats);
+    ipcRenderer.on("usage-updated", handler);
+    return () => { ipcRenderer.removeListener("usage-updated", handler); };
+  },
 
   // Feishu
   saveFeishuConfig: (config: unknown) => ipcRenderer.invoke("save-feishu-config", config),
@@ -64,12 +69,6 @@ contextBridge.exposeInMainWorld("clawbox", {
 
   // External links
   openExternal: (url: string) => ipcRenderer.invoke("open-external", url),
-
-  // Assistants
-  listAssistants: () => ipcRenderer.invoke("list-assistants"),
-  createAssistant: (config: unknown) => ipcRenderer.invoke("create-assistant", config),
-  removeAssistant: (id: string) => ipcRenderer.invoke("remove-assistant", id),
-  toggleAssistant: (id: string) => ipcRenderer.invoke("toggle-assistant", id),
 
   // Extensions (Skills & Plugins)
   listSkills: () => ipcRenderer.invoke("list-skills"),
