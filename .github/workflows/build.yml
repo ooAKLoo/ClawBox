@@ -212,9 +212,8 @@ jobs:
               { print }
             ' "$X64_YML" > artifacts/latest-mac.yml
 
-            # 用合并后的文件覆盖两份原始文件
-            cp artifacts/latest-mac.yml "$X64_YML"
-            cp artifacts/latest-mac.yml "$ARM64_YML"
+            # 保留合并后的文件，删除两份原始文件避免上传冲突
+            rm -f "$X64_YML" "$ARM64_YML"
 
             echo "Merged latest-mac.yml:"
             cat artifacts/latest-mac.yml
