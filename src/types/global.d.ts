@@ -44,11 +44,17 @@ export interface FeishuConfig {
 export interface SecurityConfig {
   blockPublicExpose: boolean;
   blockShellAccess: boolean;
+  blockDangerousCommands: boolean;
   blockFullDiskAccess: boolean;
   encryptCredentials: boolean;
   groupChatEnabled: boolean;
   groupChatWhitelist: string[];
   promptScanEnabled: boolean;
+}
+
+export interface CommandScanResult {
+  level: "safe" | "warn" | "block";
+  matched: string[];
 }
 
 export interface SkillInstaller {
@@ -197,6 +203,7 @@ interface ClawBoxAPI {
   onSecurityAlert: (callback: (alert: SecurityAlert) => void) => () => void;
   dismissSecurityAlert: (alertId: string) => Promise<{ success: boolean }>;
   scanPrompt: (text: string) => Promise<PromptScanResult>;
+  scanCommand: (cmd: string) => Promise<CommandScanResult>;
 }
 
 declare global {

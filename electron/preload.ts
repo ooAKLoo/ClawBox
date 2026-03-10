@@ -89,4 +89,5 @@ contextBridge.exposeInMainWorld("clawbox", {
   },
   dismissSecurityAlert: (alertId: string) => ipcRenderer.invoke("dismiss-security-alert", alertId),
   scanPrompt: (text: string) => ipcRenderer.invoke("scan-prompt", text),
+  scanCommand: (cmd: string) => ipcRenderer.invoke("scan-command", cmd),
 });

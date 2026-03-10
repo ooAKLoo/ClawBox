@@ -6,7 +6,7 @@ import { setMainWindow, pushLog, getLogBuffer, clearLogBuffer } from "./lib/logg
 import { configDir, readJsonFile, writeJsonFile } from "./lib/config";
 import { getRuntimePaths, getOpenClawCommand, detectBundledRuntime, runShell } from "./lib/runtime";
 import { DAEMON_PORT, startDaemon, stopDaemon, restartDaemon, getDaemonStatus, killDaemon, gatewayFetch, getGatewayToken, isDaemonRunning } from "./lib/daemon";
-import { configureExposureMonitor, isEncryptionAvailable, scanPrompt, syncSecurityToOpenClaw } from "./lib/security";
+import { configureExposureMonitor, isEncryptionAvailable, scanPrompt, scanCommand, syncSecurityToOpenClaw } from "./lib/security";
 import { readModelData, saveModelConfig, testModelConnection } from "./lib/model";
 import { getUsageStats, setUsageWindow, startUsageWatcher, stopUsageWatcher } from "./lib/usage";
 import { saveFeishuConfig, getFeishuConfig, testFeishuConnection, feishuPreflight, activateFeishuChannel } from "./lib/feishu";
@@ -227,6 +227,7 @@ ipcMain.handle("search-memory", (_e, query: string) => searchMemory(query));
 const defaultSecurity = {
   blockPublicExpose: true,
   blockShellAccess: true,
+  blockDangerousCommands: true,
   blockFullDiskAccess: true,
   encryptCredentials: true,
   groupChatEnabled: false,
@@ -245,6 +246,7 @@ ipcMain.handle("save-security-config", async (_e, config) => {
   const needsRestart =
     prevConfig.blockPublicExpose !== config.blockPublicExpose ||
     prevConfig.blockShellAccess !== config.blockShellAccess ||
+    prevConfig.blockDangerousCommands !== config.blockDangerousCommands ||
     prevConfig.blockFullDiskAccess !== config.blockFullDiskAccess ||
     prevConfig.groupChatEnabled !== config.groupChatEnabled ||
     JSON.stringify(prevConfig.groupChatWhitelist) !== JSON.stringify(config.groupChatWhitelist);
@@ -259,6 +261,7 @@ ipcMain.handle("save-security-config", async (_e, config) => {
 ipcMain.handle("get-security-config", () => readJsonFile("security.json") || defaultSecurity);
 
 ipcMain.handle("scan-prompt", (_e, text: string) => scanPrompt(text));
+ipcMain.handle("scan-command", (_e, cmd: string) => scanCommand(cmd));
 ipcMain.handle("dismiss-security-alert", (_e, alertId: string) => {
   pushLog("info", "system", `安全告警已忽略: ${alertId}`);
   return { success: true };
@@ -298,7 +301,7 @@ ipcMain.handle("run-diagnostics", async () => {
   checks.push({ name: "飞书配置", passed: !!feishu?.appId, detail: feishu?.appId ? "已配置" : "未配置" });
 
   const security = readJsonFile("security.json") || defaultSecurity;
-  const allSafe = security.blockPublicExpose && security.blockShellAccess && security.blockFullDiskAccess;
+  const allSafe = security.blockPublicExpose && security.blockShellAccess && security.blockDangerousCommands && security.blockFullDiskAccess;
   checks.push({ name: "安全策略", passed: allSafe, detail: allSafe ? "安全模式" : "存在风险项" });
 
   const token = getGatewayToken();

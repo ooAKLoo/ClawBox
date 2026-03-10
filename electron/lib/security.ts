@@ -106,6 +106,7 @@ export function stopExposureMonitor() {
 const defaultSecurity = {
   blockPublicExpose: true,
   blockShellAccess: true,
+  blockDangerousCommands: true,
   blockFullDiskAccess: true,
   encryptCredentials: true,
   groupChatEnabled: false,
@@ -146,6 +147,13 @@ export function syncSecurityToOpenClaw(config: typeof defaultSecurity) {
     if (!tools.exec || typeof tools.exec !== "object") tools.exec = {};
     const exec = tools.exec as Record<string, unknown>;
     exec.security = config.blockShellAccess ? "deny" : "full";
+
+    // Dangerous command deny patterns: tools.exec.denyPatterns
+    if (!config.blockShellAccess && config.blockDangerousCommands) {
+      exec.denyPatterns = DANGEROUS_CMD_PATTERNS.map((p) => p.source);
+    } else {
+      exec.denyPatterns = [];
+    }
 
     // File access: tools.fs.workspaceOnly
     if (!tools.fs || typeof tools.fs !== "object") tools.fs = {};
@@ -200,6 +208,67 @@ export function syncGatewayToken(token: string) {
   } catch (err) {
     pushLog("error", "system", `写入 Gateway Token 到 OpenClaw 配置失败: ${err}`);
   }
+}
+
+// --- Dangerous command scanner ---
+
+export type CommandRiskLevel = "safe" | "warn" | "block";
+
+export interface CommandScanResult {
+  level: CommandRiskLevel;
+  matched: string[];
+}
+
+/**
+ * Patterns for dangerous shell commands.
+ * Used both for local scanning and synced to OpenClaw as denyPatterns.
+ */
+const DANGEROUS_CMD_PATTERNS: RegExp[] = [
+  // Destructive file operations
+  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--force\s+)/i,       // rm -f / rm -rf / rm --force
+  /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)/i,                    // rm -r / rm -rfi etc.
+  /\brm\s+.*\s+\/($|\s)/,                                  // rm ... /
+  /\bsudo\s+rm\b/i,                                        // sudo rm
+  // Disk / partition destructive
+  /\bmkfs\b/i,                                             // format filesystem
+  /\bdd\s+.*of\s*=\s*\/dev\//i,                            // dd write to device
+  /\bfdisk\b/i,                                            // partition editor
+  /\bparted\b/i,
+  // Fork bomb
+  /:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;?\s*:/,                  // :(){ :|:& };:
+  // System shutdown / reboot
+  /\b(shutdown|reboot|halt|poweroff|init\s+[06])\b/i,
+  // Chmod / chown destructive
+  /\bchmod\s+(-R\s+)?[0-7]{3,4}\s+\//i,                   // chmod on root
+  /\bchown\s+-R\s+.*\s+\//i,                               // chown -R on root
+  // Network exfiltration
+  /\bcurl\b.*\|\s*(bash|sh|zsh)\b/i,                       // curl | bash
+  /\bwget\b.*\|\s*(bash|sh|zsh)\b/i,                       // wget | bash
+  // Kill all processes
+  /\bkillall\b/i,
+  /\bkill\s+-9\s+-1\b/,                                    // kill -9 -1 (all processes)
+  // Destructive git
+  /\bgit\s+push\s+.*--force\b/i,
+  // Environment destruction
+  /\b(unset|export)\s+(PATH|HOME|USER)=/i,
+];
+
+export function scanCommand(cmd: string): CommandScanResult {
+  if (!cmd) return { level: "safe", matched: [] };
+
+  const matched: string[] = [];
+
+  for (const pattern of DANGEROUS_CMD_PATTERNS) {
+    const m = cmd.match(pattern);
+    if (m) {
+      matched.push(m[0]);
+    }
+  }
+
+  if (matched.length > 0) {
+    return { level: "block", matched };
+  }
+  return { level: "safe", matched: [] };
 }
 
 // --- Prompt injection scanner (built-in, no third-party runtime dependency) ---

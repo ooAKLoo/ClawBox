@@ -7,6 +7,7 @@ import type { SecurityConfig } from "../types/global";
 const defaults: SecurityConfig = {
   blockPublicExpose: true,
   blockShellAccess: true,
+  blockDangerousCommands: true,
   blockFullDiskAccess: true,
   encryptCredentials: true,
   groupChatEnabled: false,
@@ -37,6 +38,12 @@ const allItems: PolicyItem[] = [
     title: <>禁止 <Term k="Shell" /> 执行</>,
     desc: "关闭后，助手可以在你电脑上执行任意命令，比如删除文件、安装软件",
     risk: "critical",
+  },
+  {
+    key: "blockDangerousCommands",
+    title: "拦截高危命令",
+    desc: <>即使允许 Shell 执行，仍会拦截 rm -rf、mkfs、fork bomb 等破坏性命令</>,
+    risk: "high",
   },
   {
     key: "blockFullDiskAccess",
@@ -153,15 +160,23 @@ export default function SecurityDialog({ open, onClose, daemonRunning }: Securit
             <div className="px-6 pb-6 overflow-y-auto flex-1 space-y-2">
               {allItems.map((item) => {
                 const active = isItemActive(item);
+                // "拦截高危命令" is redundant when shell is fully blocked
+                const disabled = item.key === "blockDangerousCommands" && config.blockShellAccess;
+                const effectiveActive = disabled ? true : active;
                 return (
-                  <div key={item.key} className="bg-neutral-100 rounded-xl p-3 flex items-center justify-between">
+                  <div key={item.key} className={`bg-neutral-100 rounded-xl p-3 flex items-center justify-between ${disabled ? "opacity-50" : ""}`}>
                     <div className="flex-1 min-w-0 mr-3">
                       <div className="flex items-center gap-2">
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-300 ${
-                          active ? "bg-emerald-500" : item.risk === "critical" ? "bg-red-400" : item.risk === "high" ? "bg-amber-400" : "bg-neutral-300"
+                          effectiveActive ? "bg-emerald-500" : item.risk === "critical" ? "bg-red-400" : item.risk === "high" ? "bg-amber-400" : "bg-neutral-300"
                         }`} />
                         <span className="text-[11px] font-medium text-neutral-700">{item.title}</span>
-                        {!active && (
+                        {disabled && (
+                          <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
+                            已被 Shell 禁用覆盖
+                          </span>
+                        )}
+                        {!disabled && !effectiveActive && (
                           <span className={`text-[8px] font-medium px-1.5 py-0.5 rounded ${
                             item.risk === "critical" ? "bg-[#FFF1F2] text-[#E11D48]" :
                             item.risk === "high" ? "bg-[#FFFBEB] text-[#D97706]" :
@@ -171,18 +186,21 @@ export default function SecurityDialog({ open, onClose, daemonRunning }: Securit
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-neutral-400 mt-0.5 ml-3.5">{item.desc}</div>
+                      <div className="text-[10px] text-neutral-400 mt-0.5 ml-3.5">
+                        {disabled ? "Shell 已完全禁用，所有命令均被拦截" : item.desc}
+                      </div>
                     </div>
                     <motion.button
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => toggle(item.key)}
+                      whileTap={disabled ? undefined : { scale: 0.9 }}
+                      onClick={disabled ? undefined : () => toggle(item.key)}
                       className={`w-9 h-5 rounded-full relative flex-shrink-0 transition-colors duration-200 ${
+                        disabled ? "bg-neutral-800 cursor-not-allowed" :
                         config[item.key] ? "bg-neutral-800" : "bg-neutral-200"
                       }`}
                     >
                       <motion.div
                         className="absolute top-0.5 w-4 h-4 bg-white rounded-full"
-                        animate={{ left: config[item.key] ? 18 : 2 }}
+                        animate={{ left: (disabled || config[item.key]) ? 18 : 2 }}
                         transition={{ type: "spring", stiffness: 500, damping: 35 }}
                       />
                     </motion.button>
