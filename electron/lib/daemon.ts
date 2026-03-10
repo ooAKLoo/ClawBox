@@ -63,7 +63,7 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
       OPENCLAW_GATEWAY_TOKEN: gatewayToken,
     };
     console.log("[ClawBox] Spawning gateway:", cmd, fullArgs.join(" "));
-    daemonProcess = spawn(cmd, fullArgs, { shell: true, env: daemonEnv });
+    daemonProcess = spawn(cmd, fullArgs, { shell: false, env: daemonEnv });
 
     // AbortController to short-circuit waitForPort when process exits early
     const abortController = new AbortController();

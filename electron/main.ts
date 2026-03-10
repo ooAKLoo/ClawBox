@@ -4,7 +4,7 @@ import fs from "fs";
 
 import { setMainWindow, pushLog, getLogBuffer, clearLogBuffer } from "./lib/logger";
 import { configDir, readJsonFile, writeJsonFile } from "./lib/config";
-import { getRuntimePaths, getOpenClawCommand, detectBundledRuntime, runShell } from "./lib/runtime";
+import { getRuntimePaths, detectBundledRuntime, runOpenClaw } from "./lib/runtime";
 import { DAEMON_PORT, startDaemon, stopDaemon, restartDaemon, getDaemonStatus, killDaemon, gatewayFetch, getGatewayToken, isDaemonRunning } from "./lib/daemon";
 import { configureExposureMonitor, isEncryptionAvailable, scanPrompt, scanCommand, syncSecurityToOpenClaw } from "./lib/security";
 import { readModelData, saveModelConfig, testModelConnection } from "./lib/model";
@@ -153,8 +153,7 @@ ipcMain.handle("install-environment", async (event) => {
   }
 
   send("verify", "running", "验证运行时...");
-  const { cmd, args } = getOpenClawCommand();
-  const versionCheck = await runShell(cmd, [...args, "--version"]);
+  const versionCheck = await runOpenClaw(["--version"]);
   sendLog("verify", `openclaw --version -> ${versionCheck.stdout || versionCheck.stderr}`);
 
   if (versionCheck.code === 0) {

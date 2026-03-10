@@ -4,6 +4,7 @@ import { Settings, ShieldCheck } from "lucide-react";
 import Onboarding from "./pages/Onboarding";
 import ModelDialog from "./sections/ModelSection";
 import ChannelDialog from "./sections/ChannelSection";
+import ExtensionsSection from "./sections/ExtensionsSection";
 import SecurityDialog from "./sections/SecuritySummary";
 import SettingsDialog from "./components/SettingsDialog";
 import SecurityParticles from "./components/SecurityParticles";
@@ -435,6 +436,8 @@ export default function App() {
               </motion.button>
             </div>
 
+            {/* Extensions — Skills / Plugins / Memory */}
+            <ExtensionsSection />
       </main>
 
       {/* Dialogs */}

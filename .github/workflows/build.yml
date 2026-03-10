@@ -263,7 +263,7 @@ jobs:
 
           ## 🇨🇳 中国用户（国内高速下载）
 
-          **Windows:** ${OSS_BASE}/latest/ClawBox.Setup.${VERSION_NUM}.exe
+          **Windows:** ${OSS_BASE}/latest/ClawBox%20Setup%20${VERSION_NUM}.exe
           **macOS (Apple Silicon):** ${OSS_BASE}/latest/ClawBox-${VERSION_NUM}-arm64.dmg
           **macOS (Intel):** ${OSS_BASE}/latest/ClawBox-${VERSION_NUM}.dmg
 
@@ -271,7 +271,7 @@ jobs:
 
           ## 🌍 International Users (GitHub Download)
 
-          **Windows:** ${GITHUB_BASE}/ClawBox.Setup.${VERSION_NUM}.exe
+          **Windows:** ${GITHUB_BASE}/ClawBox%20Setup%20${VERSION_NUM}.exe
           **macOS (Apple Silicon):** ${GITHUB_BASE}/ClawBox-${VERSION_NUM}-arm64.dmg
           **macOS (Intel):** ${GITHUB_BASE}/ClawBox-${VERSION_NUM}.dmg
 
@@ -290,5 +290,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           # 上传到 /releases/clawbox/<version>/ 目录
           ossutil cp -rf upload/ oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/${VERSION}/
-          # 同时复制到 /releases/clawbox/latest/ 供自动更新使用
+          # 清空 latest 目录，确保不残留旧版本文件
+          ossutil rm -rf oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/latest/
+          # 上传当前版本到 latest
           ossutil cp -rf upload/ oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/latest/

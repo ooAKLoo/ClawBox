@@ -92,7 +92,7 @@ export function detectBundledRuntime(): {
   };
 }
 
-export function runShell(cmd: string, args: string[], useShell = true): Promise<{ code: number; stdout: string; stderr: string }> {
+export function runShell(cmd: string, args: string[], useShell = false): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args, { shell: useShell });
     let stdout = "";

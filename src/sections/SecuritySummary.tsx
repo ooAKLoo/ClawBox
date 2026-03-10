@@ -37,13 +37,13 @@ const allItems: PolicyItem[] = [
     key: "blockShellAccess",
     title: <>禁止 <Term k="Shell" /> 执行</>,
     desc: "关闭后，助手可以在你电脑上执行任意命令，比如删除文件、安装软件",
-    risk: "critical",
+    risk: "high",
   },
   {
     key: "blockDangerousCommands",
     title: "拦截高危命令",
     desc: <>即使允许 Shell 执行，仍会拦截 rm -rf、mkfs、fork bomb 等破坏性命令</>,
-    risk: "high",
+    risk: "critical",
   },
   {
     key: "blockFullDiskAccess",
