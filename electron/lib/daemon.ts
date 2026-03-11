@@ -1,11 +1,12 @@
 import { spawn, ChildProcess } from "child_process";
+import { createConnection } from "net";
 import crypto from "crypto";
 import { pushLog } from "./logger";
 import { getOpenClawCommand } from "./runtime";
 import { startExposureMonitor, stopExposureMonitor, getSecurityConfig, syncSecurityToOpenClaw, syncGatewayToken } from "./security";
 
 export const DAEMON_PORT = 18789;
-const DAEMON_START_TIMEOUT = 15000;
+const DAEMON_START_TIMEOUT = 30000;
 const DAEMON_POLL_INTERVAL = 500;
 
 let daemonProcess: ChildProcess | null = null;
@@ -32,6 +33,24 @@ export function gatewayFetch(url: string, init?: RequestInit & { signal?: AbortS
   return fetch(url, { ...init, headers });
 }
 
+/** Check if a TCP port is already in use */
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host: "127.0.0.1" });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => {
+      resolve(false);
+    });
+    socket.setTimeout(2000, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
 async function waitForPort(port: number, timeoutMs: number, abortSignal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -48,6 +67,15 @@ async function waitForPort(port: number, timeoutMs: number, abortSignal?: AbortS
 
 export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
   return new Promise(async (resolve, reject) => {
+    // Pre-check: is the port already occupied by another process?
+    const portBusy = await isPortInUse(DAEMON_PORT);
+    if (portBusy) {
+      const msg = `端口 ${DAEMON_PORT} 已被其他程序占用，Gateway 无法启动。请关闭占用该端口的程序后重试。`;
+      pushLog("error", "system", msg);
+      resolve({ success: false, message: msg });
+      return;
+    }
+
     gatewayToken = crypto.randomBytes(32).toString("hex");
 
     // Read security config and sync to OpenClaw before spawning
@@ -68,6 +96,10 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
     // AbortController to short-circuit waitForPort when process exits early
     const abortController = new AbortController();
 
+    // Collect recent stderr lines for diagnostic messages
+    const stderrLines: string[] = [];
+    const MAX_STDERR_LINES = 20;
+
     daemonProcess.stdout?.on("data", (d) => {
       const line = d.toString().trim();
       if (!line) return;
@@ -80,6 +112,7 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
       if (!line) return;
       console.error("[daemon stderr]", line);
       pushLog("error", "gateway", line);
+      if (stderrLines.length < MAX_STDERR_LINES) stderrLines.push(line);
     });
     daemonProcess.on("error", (err) => {
       console.error("[ClawBox] Daemon spawn error:", err);
@@ -102,14 +135,16 @@ export function spawnDaemon(): Promise<{ success: boolean; message: string }> {
       resolve({ success: true, message: "Daemon started" });
     } else if (abortController.signal.aborted) {
       stopExposureMonitor();
-      resolve({ success: false, message: "Daemon process exited before port became reachable" });
+      const detail = stderrLines.length > 0 ? `\n${stderrLines.join("\n")}` : "";
+      resolve({ success: false, message: `Daemon process exited before port became reachable${detail}` });
     } else {
       if (daemonProcess) {
         daemonProcess.kill();
         daemonProcess = null;
       }
       stopExposureMonitor();
-      resolve({ success: false, message: `Daemon failed to listen on port ${DAEMON_PORT} within ${DAEMON_START_TIMEOUT / 1000}s` });
+      const detail = stderrLines.length > 0 ? `\n${stderrLines.join("\n")}` : "";
+      resolve({ success: false, message: `Daemon 在 ${DAEMON_START_TIMEOUT / 1000}s 内未能在端口 ${DAEMON_PORT} 上启动${detail}` });
     }
   });
 }

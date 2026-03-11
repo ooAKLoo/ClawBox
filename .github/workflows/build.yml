@@ -48,6 +48,13 @@ jobs:
         env:
           TARGET_ARCH: x64
 
+      - name: Smoke test (runtime + gateway + API)
+        run: node scripts/smoke-test.js
+        env:
+          TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+          TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
+          TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
+
       - name: Build macOS (x64)
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -119,6 +126,13 @@ jobs:
         env:
           TARGET_ARCH: arm64
 
+      - name: Smoke test (runtime + gateway + API)
+        run: node scripts/smoke-test.js
+        env:
+          TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+          TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
+          TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
+
       - name: Build macOS (ARM64)
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -171,6 +185,13 @@ jobs:
         run: node scripts/download-openclaw.js
         env:
           TARGET_ARCH: x64
+
+      - name: Smoke test (runtime + gateway + API)
+        run: node scripts/smoke-test.js
+        env:
+          TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+          TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
+          TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
 
       - name: Build Windows
         run: npx vite build && npx electron-builder --win --x64 --publish never
