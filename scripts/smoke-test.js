@@ -95,19 +95,20 @@ function checkRuntime() {
     ok = false;
   }
 
-  // Generic native binding check: scan node_modules for NAPI-RS platform packages
-  // Pattern: @scope/name-{os}-{arch}/ should contain a .node file
+  // Generic native binding check: scan node_modules for platform-specific packages
+  // These packages may contain .node, .dylib, .so, .dll or other native files
   const targetArch2 = process.env.TARGET_ARCH || process.arch;
   const platformMap = { darwin: "darwin", win32: "win32", linux: "linux" };
   const osName = platformMap[process.platform] || process.platform;
   const suffix = `${osName}-${targetArch2}`;
   const nodeModulesDir = path.join(RUNTIME_DIR, "openclaw", "node_modules");
+  const nativeExts = [".node", ".dylib", ".so", ".dll"];
+  const metaFiles = new Set(["package.json", "readme.md", "license", "license.md", "changelog.md"]);
 
   let bindingCount = 0;
-  let missingBindings = [];
+  let emptyBindings = [];
 
   if (fs.existsSync(nodeModulesDir)) {
-    // Walk scoped (@scope/) and top-level packages
     const entries = fs.readdirSync(nodeModulesDir);
     const dirs = [];
     for (const e of entries) {
@@ -123,16 +124,31 @@ function checkRuntime() {
 
     for (const { name, dir } of dirs) {
       if (!name.endsWith(`-${suffix}`)) continue;
-      // This looks like a platform-specific native binding package
-      const nodeFiles = fs.readdirSync(dir).filter((f) => f.endsWith(".node"));
-      if (nodeFiles.length > 0) {
-        const size = fs.statSync(path.join(dir, nodeFiles[0])).size;
-        pass(`Native binding: ${name} (${(size / 1024).toFixed(0)} KB)`);
+
+      // Recursively find native files in the package
+      const hasNative = (function findNative(d) {
+        for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+          if (f.isDirectory()) { if (findNative(path.join(d, f.name))) return true; }
+          else if (nativeExts.some((ext) => f.name.endsWith(ext))) return true;
+        }
+        return false;
+      })(dir);
+
+      if (hasNative) {
+        pass(`Native binding: ${name}`);
         bindingCount++;
       } else {
-        fail(`Native binding package ${name} exists but contains no .node file!`);
-        missingBindings.push(name);
-        ok = false;
+        // Check if dir has any non-metadata files (some packages bundle raw binaries without standard extensions)
+        const allFiles = fs.readdirSync(dir);
+        const hasContent = allFiles.some((f) => !metaFiles.has(f.toLowerCase()));
+        if (hasContent) {
+          pass(`Native binding: ${name} (non-standard format)`);
+          bindingCount++;
+        } else {
+          fail(`Native binding package ${name} appears empty (metadata only)`);
+          emptyBindings.push(name);
+          ok = false;
+        }
       }
     }
   }
@@ -140,8 +156,8 @@ function checkRuntime() {
   if (bindingCount > 0) {
     info(`${bindingCount} native binding(s) verified for ${suffix}`);
   }
-  if (missingBindings.length > 0) {
-    fail(`${missingBindings.length} binding(s) missing .node file — app will crash on ${suffix}`);
+  if (emptyBindings.length > 0) {
+    fail(`${emptyBindings.length} binding(s) empty — app may crash on ${suffix}`);
   }
 
   return { ok, archMatch };

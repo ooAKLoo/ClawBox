@@ -164,9 +164,19 @@ async function main() {
   const osName = platformMap[targetPlatform] || targetPlatform;
   const suffix = `${osName}-${targetArch}`;
   const nodeModulesDir = path.join(OPENCLAW_DIR, "node_modules");
+  const nativeExts = [".node", ".dylib", ".so", ".dll"];
+  const isCrossCompile = targetArch !== process.arch;
 
-  // Collect all main NAPI-RS packages that expect a platform-specific binding
-  // Detection: a scoped package @scope/name that has a sibling @scope/name-{os}-{arch} listed in optionalDependencies
+  // Recursively check if a directory contains any native binary
+  function hasNativeFile(dir) {
+    for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (f.isDirectory()) { if (hasNativeFile(path.join(dir, f.name))) return true; }
+      else if (nativeExts.some((ext) => f.name.endsWith(ext))) return true;
+    }
+    return false;
+  }
+
+  // Scan main packages for expected platform-specific optional dependencies
   const missingBindings = [];
 
   if (fs.existsSync(nodeModulesDir)) {
@@ -175,12 +185,9 @@ async function main() {
       if (!e.startsWith("@")) continue;
       const scopeDir = path.join(nodeModulesDir, e);
       if (!fs.statSync(scopeDir).isDirectory()) continue;
-      const subs = fs.readdirSync(scopeDir);
 
-      for (const sub of subs) {
-        // Skip platform-specific packages themselves
+      for (const sub of fs.readdirSync(scopeDir)) {
         if (sub.includes("-darwin-") || sub.includes("-win32-") || sub.includes("-linux-")) continue;
-
         const pkgJsonPath = path.join(scopeDir, sub, "package.json");
         if (!fs.existsSync(pkgJsonPath)) continue;
 
@@ -191,10 +198,7 @@ async function main() {
 
           if (optDeps[expectedBinding]) {
             const bindingDir = path.join(scopeDir, `${sub}-${suffix}`);
-            const hasNodeFile = fs.existsSync(bindingDir) &&
-              fs.readdirSync(bindingDir).some((f) => f.endsWith(".node"));
-
-            if (hasNodeFile) {
+            if (fs.existsSync(bindingDir) && hasNativeFile(bindingDir)) {
               console.log(`      Native binding OK: ${expectedBinding}`);
             } else {
               missingBindings.push(expectedBinding);
@@ -206,12 +210,14 @@ async function main() {
   }
 
   // Attempt to install any missing bindings
+  // Use --force for cross-compile to bypass EBADPLATFORM check
+  const forceFlag = isCrossCompile ? " --force" : "";
   for (const pkg of missingBindings) {
     console.log(`      [!] Native binding missing: ${pkg}`);
-    console.log(`      [!] Attempting explicit install (npm optional dep bug workaround)...`);
+    console.log(`      [!] Attempting explicit install${isCrossCompile ? " (cross-compile, using --force)" : ""}...`);
     try {
       execSync(
-        `npm install ${pkg} --prefix "${OPENCLAW_DIR}" --no-save`,
+        `npm install ${pkg} --prefix "${OPENCLAW_DIR}" --no-save${forceFlag}`,
         {
           stdio: "inherit",
           env: {
