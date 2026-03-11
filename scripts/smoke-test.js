@@ -64,6 +64,8 @@ function checkRuntime() {
   const manifest = path.join(RUNTIME_DIR, "manifest.json");
 
   let ok = true;
+  let archMatch = true;
+
   if (fs.existsSync(nodeBin)) {
     pass(`Node binary: ${nodeBin}`);
   } else {
@@ -81,12 +83,19 @@ function checkRuntime() {
   if (fs.existsSync(manifest)) {
     const m = JSON.parse(fs.readFileSync(manifest, "utf-8"));
     pass(`Manifest: node=${m.nodeVersion} openclaw=${m.openclawVersion} platform=${m.platform}-${m.arch}`);
+
+    // Detect cross-compilation: TARGET_ARCH differs from host arch
+    const targetArch = process.env.TARGET_ARCH || process.arch;
+    if (targetArch !== process.arch) {
+      archMatch = false;
+      info(`Cross-compile detected: target=${targetArch}, host=${process.arch} — gateway test will be skipped`);
+    }
   } else {
     fail(`Manifest missing: ${manifest}`);
     ok = false;
   }
 
-  return ok;
+  return { ok, archMatch };
 }
 
 /* ── 2. Start gateway and check port ── */
@@ -276,14 +285,21 @@ async function main() {
   console.log("║   ClawBox Post-Build Smoke Test  ║");
   console.log("╚══════════════════════════════════╝");
 
-  const runtimeOk = checkRuntime();
+  const { ok: runtimeOk, archMatch } = checkRuntime();
   if (!runtimeOk) {
     console.log("\n⚠ Runtime missing — skipping gateway & API tests\n");
     cleanup();
     process.exit(1);
   }
 
-  const token = await testGatewayStart();
+  let token = null;
+  if (archMatch) {
+    token = await testGatewayStart();
+  } else {
+    console.log("\n[2/3] Testing gateway startup...\n");
+    info("Skipped — cross-compile build, native bindings won't match host arch");
+  }
+
   await testApiConnectivity(token);
 
   cleanup();

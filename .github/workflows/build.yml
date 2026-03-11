@@ -51,6 +51,7 @@ jobs:
       - name: Smoke test (runtime + gateway + API)
         run: node scripts/smoke-test.js
         env:
+          TARGET_ARCH: x64
           TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
           TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
           TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
@@ -129,6 +130,7 @@ jobs:
       - name: Smoke test (runtime + gateway + API)
         run: node scripts/smoke-test.js
         env:
+          TARGET_ARCH: arm64
           TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
           TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
           TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
@@ -189,6 +191,7 @@ jobs:
       - name: Smoke test (runtime + gateway + API)
         run: node scripts/smoke-test.js
         env:
+          TARGET_ARCH: x64
           TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
           TEST_API_BASE_URL: ${{ secrets.TEST_API_BASE_URL }}
           TEST_API_MODEL: ${{ secrets.TEST_API_MODEL }}
