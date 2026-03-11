@@ -157,6 +157,83 @@ async function main() {
     process.exit(1);
   }
 
+  // Verify & fix native bindings (npm optional dependency bug workaround)
+  // npm/cli#4828: optional dependencies may silently fail to install with --prefix
+  const { platform: targetPlatform, arch: targetArch } = getPlatformArch();
+  const platformMap = { darwin: "darwin", win32: "win32", linux: "linux" };
+  const osName = platformMap[targetPlatform] || targetPlatform;
+  const suffix = `${osName}-${targetArch}`;
+  const nodeModulesDir = path.join(OPENCLAW_DIR, "node_modules");
+
+  // Collect all main NAPI-RS packages that expect a platform-specific binding
+  // Detection: a scoped package @scope/name that has a sibling @scope/name-{os}-{arch} listed in optionalDependencies
+  const missingBindings = [];
+
+  if (fs.existsSync(nodeModulesDir)) {
+    const entries = fs.readdirSync(nodeModulesDir);
+    for (const e of entries) {
+      if (!e.startsWith("@")) continue;
+      const scopeDir = path.join(nodeModulesDir, e);
+      if (!fs.statSync(scopeDir).isDirectory()) continue;
+      const subs = fs.readdirSync(scopeDir);
+
+      for (const sub of subs) {
+        // Skip platform-specific packages themselves
+        if (sub.includes("-darwin-") || sub.includes("-win32-") || sub.includes("-linux-")) continue;
+
+        const pkgJsonPath = path.join(scopeDir, sub, "package.json");
+        if (!fs.existsSync(pkgJsonPath)) continue;
+
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+          const optDeps = pkg.optionalDependencies || {};
+          const expectedBinding = `${e}/${sub}-${suffix}`;
+
+          if (optDeps[expectedBinding]) {
+            const bindingDir = path.join(scopeDir, `${sub}-${suffix}`);
+            const hasNodeFile = fs.existsSync(bindingDir) &&
+              fs.readdirSync(bindingDir).some((f) => f.endsWith(".node"));
+
+            if (hasNodeFile) {
+              console.log(`      Native binding OK: ${expectedBinding}`);
+            } else {
+              missingBindings.push(expectedBinding);
+            }
+          }
+        } catch { /* skip unreadable package.json */ }
+      }
+    }
+  }
+
+  // Attempt to install any missing bindings
+  for (const pkg of missingBindings) {
+    console.log(`      [!] Native binding missing: ${pkg}`);
+    console.log(`      [!] Attempting explicit install (npm optional dep bug workaround)...`);
+    try {
+      execSync(
+        `npm install ${pkg} --prefix "${OPENCLAW_DIR}" --no-save`,
+        {
+          stdio: "inherit",
+          env: {
+            ...process.env,
+            PATH: process.env.PATH,
+            npm_config_cache: npmCacheDir,
+            NPM_CONFIG_CACHE: npmCacheDir,
+          },
+        }
+      );
+      console.log(`      [✓] Installed ${pkg}`);
+    } catch (e) {
+      console.error(`      [✗] Failed to install ${pkg}: ${e.message}`);
+      console.error(`      The app may crash on ${suffix} due to missing native binding.`);
+      process.exit(1);
+    }
+  }
+
+  if (missingBindings.length > 0) {
+    console.log(`      Fixed ${missingBindings.length} missing native binding(s)`);
+  }
+
   // Write a manifest for the app to read at runtime
   const manifest = {
     nodeVersion: NODE_VERSION,

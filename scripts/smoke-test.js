@@ -95,6 +95,55 @@ function checkRuntime() {
     ok = false;
   }
 
+  // Generic native binding check: scan node_modules for NAPI-RS platform packages
+  // Pattern: @scope/name-{os}-{arch}/ should contain a .node file
+  const targetArch2 = process.env.TARGET_ARCH || process.arch;
+  const platformMap = { darwin: "darwin", win32: "win32", linux: "linux" };
+  const osName = platformMap[process.platform] || process.platform;
+  const suffix = `${osName}-${targetArch2}`;
+  const nodeModulesDir = path.join(RUNTIME_DIR, "openclaw", "node_modules");
+
+  let bindingCount = 0;
+  let missingBindings = [];
+
+  if (fs.existsSync(nodeModulesDir)) {
+    // Walk scoped (@scope/) and top-level packages
+    const entries = fs.readdirSync(nodeModulesDir);
+    const dirs = [];
+    for (const e of entries) {
+      if (e.startsWith("@")) {
+        const scopeDir = path.join(nodeModulesDir, e);
+        for (const sub of fs.readdirSync(scopeDir)) {
+          dirs.push({ name: `${e}/${sub}`, dir: path.join(scopeDir, sub) });
+        }
+      } else {
+        dirs.push({ name: e, dir: path.join(nodeModulesDir, e) });
+      }
+    }
+
+    for (const { name, dir } of dirs) {
+      if (!name.endsWith(`-${suffix}`)) continue;
+      // This looks like a platform-specific native binding package
+      const nodeFiles = fs.readdirSync(dir).filter((f) => f.endsWith(".node"));
+      if (nodeFiles.length > 0) {
+        const size = fs.statSync(path.join(dir, nodeFiles[0])).size;
+        pass(`Native binding: ${name} (${(size / 1024).toFixed(0)} KB)`);
+        bindingCount++;
+      } else {
+        fail(`Native binding package ${name} exists but contains no .node file!`);
+        missingBindings.push(name);
+        ok = false;
+      }
+    }
+  }
+
+  if (bindingCount > 0) {
+    info(`${bindingCount} native binding(s) verified for ${suffix}`);
+  }
+  if (missingBindings.length > 0) {
+    fail(`${missingBindings.length} binding(s) missing .node file — app will crash on ${suffix}`);
+  }
+
   return { ok, archMatch };
 }
 
