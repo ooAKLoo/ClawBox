@@ -1,0 +1,156 @@
+name: Test Install
+
+on:
+  # 发版后自动触发（由 build.yml 调用）
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+  # 也保留手动触发入口
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to test (e.g. v0.1.25)"
+        required: true
+        type: string
+
+jobs:
+  test-windows:
+    name: Windows Install Test
+    runs-on: windows-latest
+    steps:
+      - name: Download release installer
+        run: |
+          gh release download "${{ inputs.version }}" -p "*.exe" -R ooAKLoo/ClawBox -D installer
+          $exe = Get-ChildItem installer\*.exe | Select-Object -First 1
+          Write-Host "Downloaded: $($exe.Name) ($([math]::Round($exe.Length / 1MB, 1)) MB)"
+          echo "INSTALLER_PATH=$($exe.FullName)" >> $env:GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Silent install
+        run: |
+          Write-Host "Installing $env:INSTALLER_PATH ..."
+          # NSIS /S = silent, /D = install directory
+          Start-Process -Wait -FilePath $env:INSTALLER_PATH -ArgumentList "/S"
+          Write-Host "Install process completed"
+
+      - name: Verify installation files
+        run: |
+          $appDir = "$env:LOCALAPPDATA\Programs\ClawBox"
+          $errors = 0
+
+          # Check main executable
+          if (Test-Path "$appDir\ClawBox.exe") {
+            Write-Host "✓ ClawBox.exe found"
+          } else {
+            Write-Host "✗ ClawBox.exe NOT found"
+            $errors++
+          }
+
+          # Check bundled runtime
+          $runtime = "$appDir\resources\runtime"
+
+          $node = "$runtime\node\node.exe"
+          if (Test-Path $node) {
+            $ver = & $node --version 2>&1
+            Write-Host "✓ Bundled Node.js: $ver"
+          } else {
+            Write-Host "✗ Bundled node.exe NOT found"
+            $errors++
+          }
+
+          $openclaw = "$runtime\openclaw\node_modules\.bin\openclaw.cmd"
+          if (Test-Path $openclaw) {
+            Write-Host "✓ OpenClaw binary found"
+          } else {
+            Write-Host "✗ OpenClaw binary NOT found"
+            $errors++
+          }
+
+          $manifest = "$runtime\manifest.json"
+          if (Test-Path $manifest) {
+            $m = Get-Content $manifest | ConvertFrom-Json
+            Write-Host "✓ Manifest: node=$($m.nodeVersion) openclaw=$($m.openclawVersion) platform=$($m.platform)-$($m.arch)"
+          } else {
+            Write-Host "✗ manifest.json NOT found"
+            $errors++
+          }
+
+          # Check native bindings (.node files)
+          $nodeModules = "$runtime\openclaw\node_modules"
+          $nodeFiles = Get-ChildItem -Path $nodeModules -Filter "*.node" -Recurse -ErrorAction SilentlyContinue
+          if ($nodeFiles.Count -gt 0) {
+            Write-Host "✓ Native bindings: $($nodeFiles.Count) .node file(s) found"
+            foreach ($f in $nodeFiles) {
+              $rel = $f.FullName.Replace($nodeModules, "").TrimStart("\")
+              Write-Host "    $rel ($([math]::Round($f.Length / 1KB)) KB)"
+            }
+          } else {
+            Write-Host "✗ No .node native bindings found"
+            $errors++
+          }
+
+          if ($errors -gt 0) {
+            Write-Error "$errors check(s) failed"
+            exit 1
+          }
+
+      - name: Test gateway startup
+        run: |
+          $runtime = "$env:LOCALAPPDATA\Programs\ClawBox\resources\runtime"
+          $node = "$runtime\node\node.exe"
+
+          # Resolve openclaw entry point (Windows .cmd → package.json bin)
+          $pkgJson = "$runtime\openclaw\node_modules\openclaw\package.json"
+          $pkg = Get-Content $pkgJson | ConvertFrom-Json
+          $binEntry = if ($pkg.bin -is [string]) { $pkg.bin } else { $pkg.bin.openclaw }
+          $entry = Join-Path (Split-Path $pkgJson) $binEntry
+
+          Write-Host "Starting gateway: $node $entry gateway run --port 18789 --bind loopback --force --allow-unconfigured"
+
+          $proc = Start-Process -FilePath $node -ArgumentList "$entry gateway run --port 18789 --bind loopback --force --allow-unconfigured --verbose" -PassThru -NoNewWindow -RedirectStandardOutput gateway-stdout.txt -RedirectStandardError gateway-stderr.txt
+
+          # Wait for gateway to become reachable (max 30s)
+          $deadline = (Get-Date).AddSeconds(30)
+          $reachable = $false
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $res = Invoke-WebRequest -Uri "http://127.0.0.1:18789" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
+              $reachable = $true
+              break
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+
+          # Show logs
+          if (Test-Path gateway-stdout.txt) {
+            Write-Host "`n--- Gateway stdout ---"
+            Get-Content gateway-stdout.txt | Select-Object -Last 20
+          }
+          if (Test-Path gateway-stderr.txt) {
+            Write-Host "`n--- Gateway stderr ---"
+            Get-Content gateway-stderr.txt | Select-Object -Last 20
+          }
+
+          # Cleanup
+          if (!$proc.HasExited) { $proc.Kill() }
+
+          if ($reachable) {
+            Write-Host "`n✓ Gateway started and listening on port 18789"
+          } else {
+            Write-Error "`n✗ Gateway did not become reachable within 30s"
+            exit 1
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "  Test Install: ${{ inputs.version }}"
+          Write-Host "  Runner OS: $env:OS"
+          Write-Host "  Runner Arch: $env:PROCESSOR_ARCHITECTURE"
+          Write-Host "========================================="

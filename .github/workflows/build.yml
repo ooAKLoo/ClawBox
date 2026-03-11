@@ -318,3 +318,10 @@ jobs:
           ossutil rm -rf oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/latest/
           # 上传当前版本到 latest
           ossutil cp -rf upload/ oss://${{ secrets.OSS_BUCKET }}/releases/clawbox/latest/
+
+  # 发版完成后自动运行安装测试
+  test-install:
+    needs: [release]
+    uses: ./.github/workflows/test-install.yml
+    with:
+      version: ${{ github.ref_name }}
